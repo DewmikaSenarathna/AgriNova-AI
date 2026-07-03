@@ -1,18 +1,21 @@
 <p align="center">
-  <img src="assets/AgriNovaAI_logo.png" width="500" alt="AgriNova AI Logo">
+  <img src="assets/AgriNovaAI_logo.png" width="300" alt="AgriNova AI Logo">
 </p>
 
-<h1 align="center">AgriNova AI</h1>
+<h1 align="center">🌾 AgriNova AI</h1>
 
 <div align="center">
   <strong>An Agentic AI-powered Agricultural Assistant that combines Large Language Models (LLMs), Retrieval-Augmented Generation (RAG) and intelligent AI agents to provide reliable, explainable and context-aware farming assistance.</strong><br>
+  
+
+  > *"AI-powered Agricultural Knowledge Assistant."*
   
 </div>
   
 ---
 <br>
 
-# 🚀 Overview
+## 🚀 Overview
 
 AgriAgent AI is an intelligent agricultural assistant designed to help farmers make informed decisions by combining the reasoning capabilities of Large Language Models with trusted agricultural knowledge through Retrieval-Augmented Generation (RAG).
 
@@ -23,7 +26,7 @@ The project aims to improve access to agricultural knowledge, reduce misinformat
 ---
 <br>
 
-# 🎯 Problem Statement
+## 🎯 Problem Statement
 
 Farmers often face challenges such as:
 
@@ -40,7 +43,7 @@ Most available information is scattered across websites, PDFs, manuals and resea
 ---
 <br>
 
-# 💡 Solution
+## 💡 Solution
 
 AgriAgent AI provides a single intelligent assistant capable of:
 
@@ -54,7 +57,7 @@ AgriAgent AI provides a single intelligent assistant capable of:
 ---
 <br>
 
-# ✨ Key Features
+## ✨ Key Features
 
 * 🤖 Agentic AI Decision Making
 * 📚 Retrieval-Augmented Generation (RAG)
@@ -73,7 +76,7 @@ AgriAgent AI provides a single intelligent assistant capable of:
 ---
 <br>
 
-# 🏗️ System Architecture
+## 🏗️ System Architecture
 
 ```text
 Farmer
@@ -109,7 +112,7 @@ Reliable Farming Recommendation
 ---
 <br>
 
-# 🛠️ Technology Stack
+## 🛠️ Technology Stack
 
 | Category        | Technology                |
 | --------------- | ------------------------- |
@@ -127,7 +130,7 @@ Reliable Farming Recommendation
 ---
 <br>
 
-# 📂 Project Structure
+## 📂 Project Structure
 
 ```text
 AgriAgent-AI/
@@ -145,7 +148,7 @@ tests/
 ---
 <br>
 
-# 🔄 Development Roadmap
+## 🔄 Development Roadmap
 
 ### Phase 1
 
@@ -187,7 +190,7 @@ tests/
 ---
 <br>
 
-# 🎯 Future Enhancements
+## 🎯 Future Enhancements
 
 * Image-based crop disease detection
 * Voice assistant for farmers
@@ -201,14 +204,14 @@ tests/
 ---
 <br>
 
-# 🤝 Contributing
+## 🤝 Contributing
 
 Contributions are welcome. If you have ideas, improvements or bug fixes, feel free to open an issue or submit a pull request.
 
 ---
 <br>
 
-# 📄 License
+## 📄 License
 
 This project is released under the MIT License.
 
