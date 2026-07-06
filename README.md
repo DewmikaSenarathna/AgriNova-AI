@@ -17,7 +17,7 @@
 
 ## 🚀 Overview
 
-AgriAgent AI is an intelligent agricultural assistant designed to help farmers make informed decisions by combining the reasoning capabilities of Large Language Models with trusted agricultural knowledge through Retrieval-Augmented Generation (RAG).
+AgriNova AI is an intelligent agricultural assistant designed to help farmers make informed decisions by combining the reasoning capabilities of Large Language Models with trusted agricultural knowledge through Retrieval-Augmented Generation (RAG).
 
 Unlike a traditional chatbot, AgriAgent AI acts as an intelligent AI agent. It understands the farmer's goal, retrieves information from trusted agricultural resources, uses multiple tools when necessary and generates reliable recommendations with supporting references.
 
@@ -45,7 +45,7 @@ Most available information is scattered across websites, PDFs, manuals and resea
 
 ## 💡 Solution
 
-AgriAgent AI provides a single intelligent assistant capable of:
+AgriNova AI provides a single intelligent assistant capable of:
 
 * Understanding natural language questions
 * Retrieving information from trusted agricultural documents
@@ -133,7 +133,7 @@ Reliable Farming Recommendation
 ## 📂 Project Structure
 
 ```text
-AgriAgent-AI/
+AgriNova-AI/
 
 backend/
 frontend/
