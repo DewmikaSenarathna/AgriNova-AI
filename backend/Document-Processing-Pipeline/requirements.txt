@@ -1,0 +1,9 @@
+# Core (required)
+pypdf>=4.0.0
+pdfplumber>=0.10.0
+langdetect>=1.0.9
+
+# Optional — only needed if you have SCANNED/image PDFs (Step 4: OCR)
+pytesseract>=0.3.10
+pdf2image>=1.17.0
+pillow>=10.0.0
