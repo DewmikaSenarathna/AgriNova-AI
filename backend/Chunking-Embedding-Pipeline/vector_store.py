@@ -42,7 +42,7 @@ class VectorStore:
         self._client = None
         self._collection = None
 
-    # -- Step 4a — Connect to (or create) the collection 
+    # Step 4a — Connect to (or create) the collection 
     def _get_collection(self):
         if self._collection is not None:
             return self._collection
@@ -126,7 +126,7 @@ class VectorStore:
         logger.info(f"Stored {written} chunk(s) in ChromaDB collection '{self.collection_name}'.")
         return written
 
-    # Step 4d — Semantic search (used by Phase 5's RAG retriever)
+    # Step 4d — Semantic search (used by Phase 5's RAG retriever) 
     def search(
         self,
         query_embedding: List[float],
