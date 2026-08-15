@@ -44,7 +44,7 @@ python search_demo.py "aphids on rice plants"   # test semantic search
 
 * **500 words** keeps a full explanation together while staying small
   enough that several chunks fit in an LLM's context window at once.
-* **Overlap (75 words)** prevents a sentence — e.g. a fertilizer dosage —
+* **Overlap (75 words)** prevents a sentence - e.g. a fertilizer dosage -
   from being sliced in half exactly at a chunk boundary.
 * **Section-aware** splitting (using the headings Phase 3 detects) stops a
   single chunk from mixing two unrelated topics together.
