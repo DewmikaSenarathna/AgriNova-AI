@@ -57,6 +57,29 @@ class Chunk:
     def __post_init__(self):
         self.word_count = len(self.text.split())
 
+    def to_dict(self) -> dict:
+        """Serializes this chunk to a plain dict — used to persist chunks
+        to disk as JSON (the Phase 4 deliverable that Phase 5 reads back)."""
+        return {
+            "chunk_id": self.chunk_id,
+            "doc_id": self.doc_id,
+            "chunk_index": self.chunk_index,
+            "heading": self.heading,
+            "text": self.text,
+            "word_count": self.word_count,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Chunk":
+        """Rebuilds a Chunk from JSON previously written by to_dict()."""
+        return cls(
+            chunk_id=data["chunk_id"],
+            doc_id=data["doc_id"],
+            chunk_index=data["chunk_index"],
+            heading=data["heading"],
+            text=data["text"],
+        )
+
 
 # Step 2a — Sentence splitting
 
