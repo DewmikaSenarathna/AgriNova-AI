@@ -1,0 +1,6 @@
+# Core (required)
+sentence-transformers>=2.7.0   # loads the BGE embedding model
+chromadb>=0.5.0                 # persistent vector database
+
+# sentence-transformers pulls these in automatically, listed here for clarity:
+# torch, numpy, transformers, huggingface-hub
