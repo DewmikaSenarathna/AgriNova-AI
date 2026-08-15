@@ -59,7 +59,7 @@ class Embedder:
         self.normalize = config.NORMALIZE_EMBEDDINGS if normalize is None else normalize
         self._model = None  # loaded on first use
 
-    # Step 3a — Load the model (once) 
+    # -- Step 3a — Load the model (once) 
     def _load_model(self):
         if self._model is not None:
             return self._model
@@ -83,13 +83,23 @@ class Embedder:
 
         logger.info(f"Loading embedding model '{self.model_name}' on '{resolved_device}'...")
         self._model = SentenceTransformer(self.model_name, device=resolved_device)
-        logger.info(
-            f"Embedding model ready — output dimension: "
-            f"{self._model.get_sentence_embedding_dimension()}"
-        )
+
+        actual_dim = self._model.get_sentence_embedding_dimension()
+        logger.info(f"Embedding model ready — output dimension: {actual_dim}")
+
+        # Sanity check: if someone swaps EMBEDDING_MODEL_NAME to a model
+        # with a different output size, fail loudly here rather than
+        # silently writing mismatched vectors into ChromaDB later.
+        expected_dim = getattr(config, "EMBEDDING_DIMENSION", None)
+        if expected_dim and actual_dim != expected_dim:
+            logger.warning(
+                f"Configured EMBEDDING_DIMENSION ({expected_dim}) does not match "
+                f"the loaded model's actual output ({actual_dim}). Update "
+                f"config.EMBEDDING_DIMENSION to {actual_dim} to silence this."
+            )
         return self._model
 
-    # Step 3b — Embed CHUNKS being stored (no instruction prefix)
+    # Step 3b — Embed CHUNKS being stored (no instruction prefix) 
     def embed_passages(self, texts: List[str]) -> List[List[float]]:
         """
         Embeds a batch of document chunks for storage in the vector
@@ -108,7 +118,7 @@ class Embedder:
         )
         return vectors.tolist()
 
-    # Step 3c — Embed a user's search QUERY (with instruction prefix) 
+    # Step 3c — Embed a user's search QUERY (with instruction prefix)
     def embed_query(self, query: str) -> List[float]:
         """
         Embeds a single natural-language question for semantic search
