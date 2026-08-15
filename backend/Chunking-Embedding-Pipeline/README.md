@@ -1,50 +1,53 @@
-# Chunking-Embedding-Pipeline (Phase 4)
+# Chunking-Embedding-Pipeline (Phase 4 + Phase 5)
 
 Turns the cleaned documents produced by `Document-Processing-Pipeline`
-into a searchable knowledge base:
+(Phase 3) into a searchable knowledge base, as two separate, independently
+runnable stages:
 
 ```
-100-page PDF (already cleaned in Phase 3)
+Phase 3 output (clean_text/*.txt + metadata/*.json)
         │
         ▼
-   loader.py        →  loads clean_text/*.txt + metadata/*.json
+┌───────────────────── PHASE 4 — Chunking ─────────────────────┐
+│  loader.py     → loads clean text + metadata                 │
+│  chunker.py    → splits into ~500-word overlapping chunks     │
+│  chunk_store.py→ saves chunks to output/chunks/<doc_id>.json  │
+└─────────────────────────────────────────────────────────────┘
         │
         ▼
-   chunker.py        →  splits into ~500-word overlapping chunks
-        │
-        ▼
-   embedder.py        →  BGE model turns each chunk into a vector
-        │
-        ▼
-   vector_store.py    →  ChromaDB (../../vector_db)
+┌───────────────────── PHASE 5 — Embedding ────────────────────┐
+│  manifest.py   → skip documents unchanged since last run      │
+│  embedder.py   → BGE model → 768-dimensional vector per chunk │
+│  vector_store.py → stores vectors in ChromaDB (../../vector_db)│
+└─────────────────────────────────────────────────────────────┘
 ```
+
+## Why two separate phases?
+
+Chunking is cheap (just text splitting). Embedding is expensive (it loads
+a transformer model and runs inference on every chunk). Keeping them
+separate — with Phase 4's output persisted to disk as plain JSON — means:
+
+* You can re-run Phase 4 any time Phase 3 adds/updates a PDF, without
+  touching the vector database.
+* Phase 5 only pays the embedding cost for documents that are **new or
+  changed**, via a content-hash manifest (`output/embedding_manifest.json`).
+  Re-running `generate_embeddings.py` on an unchanged knowledge base does
+  no work at all — exactly the "you only do this once unless your
+  knowledge changes" behaviour.
 
 ## Run it
 
 ```bash
 pip install -r requirements.txt
-python main.py                                   # chunk + embed + store everything
-python search_demo.py "aphids on rice plants"   # test semantic search
+
+# First time (or whenever you want to do both steps at once):
+python main.py
+
+# Day-to-day, once your knowledge base exists:
+python run_chunking.py          # after Phase 3 processes new/updated PDFs
+python generate_embeddings.py   # embeds only what actually changed
+
+# Test retrieval:
+python search_demo.py "aphids on tomato plants"
 ```
-
-## Files
-
-| File | Responsibility |
-|---|---|
-| `config.py` | Every tunable setting (chunk size, overlap, model name, DB paths) |
-| `loader.py` | Reads Phase 3's cleaned `.txt` + `.json` output |
-| `chunker.py` | Sentence-aware, section-aware ~500-word chunking with overlap |
-| `embedder.py` | BGE embedding model wrapper (passages vs. queries) |
-| `vector_store.py` | ChromaDB read/write/search wrapper |
-| `pipeline.py` | Orchestrates load → chunk → embed → store for every document |
-| `main.py` | CLI entry point |
-| `search_demo.py` | Standalone script to test retrieval quality |
-
-## Why chunks are ~500 words with overlap
-
-* **500 words** keeps a full explanation together while staying small
-  enough that several chunks fit in an LLM's context window at once.
-* **Overlap (75 words)** prevents a sentence - e.g. a fertilizer dosage -
-  from being sliced in half exactly at a chunk boundary.
-* **Section-aware** splitting (using the headings Phase 3 detects) stops a
-  single chunk from mixing two unrelated topics together.
