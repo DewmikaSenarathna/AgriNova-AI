@@ -1,0 +1,20 @@
+{
+  "_readme": "Sample/demo data for the Market Agent (backend/Agents-Pipeline/market_agent.py). Replace with a live market-price API or a scraped/official feed for production use — the crop key is matched case-insensitively against words in the farmer's question.",
+  "currency": "LKR",
+  "unit": "per kg",
+  "last_updated": "2026-08-01",
+  "prices": {
+    "rice": {"low": 105, "average": 118, "high": 130},
+    "paddy": {"low": 55, "average": 62, "high": 70},
+    "tomato": {"low": 90, "average": 140, "high": 220},
+    "onion": {"low": 180, "average": 240, "high": 320},
+    "potato": {"low": 150, "average": 190, "high": 240},
+    "carrot": {"low": 120, "average": 160, "high": 210},
+    "cabbage": {"low": 60, "average": 90, "high": 130},
+    "green_chili": {"low": 200, "average": 280, "high": 380},
+    "banana": {"low": 100, "average": 130, "high": 170},
+    "coconut": {"low": 65, "average": 80, "high": 100},
+    "tea": {"low": 550, "average": 620, "high": 700},
+    "maize": {"low": 70, "average": 85, "high": 100}
+  }
+}
