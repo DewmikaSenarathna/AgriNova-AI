@@ -1,0 +1,12 @@
+# Agents-Pipeline reuses ../RAG-Pipeline's embedding model, vector store
+# and LLM client via rag_bridge.py, so install THAT pipeline's
+# requirements too:
+#
+#     pip install -r ../RAG-Pipeline/requirements.txt
+#     pip install -r requirements.txt
+#
+# (sentence-transformers, chromadb, fastapi, uvicorn, pydantic,
+# python-dotenv and requests are therefore not re-listed here.)
+
+# Weather Agent — calls the free Open-Meteo REST API over HTTPS.
+requests>=2.31.0
