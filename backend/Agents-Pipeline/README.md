@@ -1,4 +1,4 @@
-# Agents-Pipeline (Phase 7 + Phase 8)
+
 
 Turns the single-shot question-answering assistant from `RAG-Pipeline`
 (Phase 6) into **Agentic AI**: instead of one generalist retriever, a
@@ -13,8 +13,9 @@ ask for but a good agronomist would still check (see
 [Planner Agent modes](#planner-agent-modes) below for the canonical
 "Should I apply fertilizer tomorrow?" example).
 
+
 ```
-Farmer asks
+Farmer asks (+ optional photo)
      │
      ▼
 ┌────────────────────── Planner Agent ───────────────────────────┐
@@ -22,10 +23,15 @@ Farmer asks
 └────────────────────────────────────────────────────────────────┘
      │
      ▼
-┌───────────┬───────────┬───────────┬─────────────┬───────────┬─────────────┬───────────┐
-│  Disease  │  Weather  │  Market   │ Government  │   Soil    │ Fertilizer  │   Pest    │
-│  Agent    │  Agent    │  Agent    │  Agent      │  Agent    │  Agent      │  Agent    │
-└───────────┴───────────┴───────────┴─────────────┴───────────┴─────────────┴───────────┘
+┌───────────┬───────────┬───────────┬─────────────┬───────────┬─────────────┬───────────┬───────────┐
+│  Disease  │  Weather  │  Market   │ Government  │   Soil    │ Fertilizer  │   Pest    │   Image   │
+│  Agent    │  Agent    │  Agent    │  Agent      │  Agent    │  Agent      │  Agent    │   Agent   │
+│    │      │    │      │    │      │   │    │    │    │      │             │           │     │     │
+│    ▼      │    ▼      │    ▼      │   ▼    ▼    │    ▼      │      ▼      │     ▼     │     ▼     │
+│ Vector DB │ Weather   │ Market    │ Vector DB    │ Vector DB│  Vector DB  │ Vector DB │  Image    │
+│  tool     │ API tool  │ Price API │ + Gov PDF    │  tool    │    tool     │   tool    │  Model    │
+│           │           │  tool     │ Search tools │          │             │           │   tool    │
+└───────────┴───────────┴───────────┴─────────────┴───────────┴─────────────┴───────────┴───────────┘
      │ (each agent runs independently — one failing never stops the others)
      ▼
 ┌────────────────────── Report Agent ────────────────────────────┐
@@ -44,18 +50,19 @@ answer instead of an empty routing table.
 
 ## Each agent, single responsibility
 
-| Agent | File | Responsibility | Evidence source |
+| Agent | File | Responsibility | Tool(s) it calls (Phase 9) |
 |---|---|---|---|
-| Planner Agent | `planner_agent.py` | Decides which specialist(s) a question needs | keyword rules, or the LLM (`PLANNER_MODE=llm`) |
-| Disease Agent | `disease_agent.py` | Crop disease diagnosis & treatment | knowledge base (RAG) |
-| Weather Agent | `weather_agent.py` | Short-range forecast & farming implications | live Open-Meteo API call |
-| Market Agent | `market_agent.py` | Crop market prices & sell/hold guidance | local price dataset, then knowledge base |
-| Government Agent | `government_agent.py` | Schemes, subsidies, official guidelines | knowledge base (RAG) |
-| Soil Agent | `soil_agent.py` | Soil health, pH, land preparation | knowledge base (RAG) |
-| Fertilizer Agent | `fertilizer_agent.py` | Fertilizer type, dosage, timing | knowledge base (RAG) |
-| Pest Agent | `pest_agent.py` | Pest identification & management | knowledge base (RAG) |
-| General Agent | `general_agent.py` | Fallback for anything else | knowledge base (RAG), whole KB |
-| Report Agent | `report_agent.py` | Combines every agent's findings into one report | the other agents' `AgentResult`s |
+| Planner Agent | `planner_agent.py` | Decides which specialist(s) a question needs | — (keyword rules, or the LLM if `PLANNER_MODE=llm`) |
+| Disease Agent | `disease_agent.py` | Crop disease diagnosis & treatment | `vector_database` |
+| Weather Agent | `weather_agent.py` | Short-range forecast & farming implications | `weather_api` |
+| Market Agent | `market_agent.py` | Crop market prices & sell/hold guidance | `market_price_api`, then `vector_database` |
+| Government Agent | `government_agent.py` | Schemes, subsidies, official guidelines | `government_pdf_search` **and** `vector_database` |
+| Soil Agent | `soil_agent.py` | Soil health, pH, land preparation | `vector_database` |
+| Fertilizer Agent | `fertilizer_agent.py` | Fertilizer type, dosage, timing | `vector_database` |
+| Pest Agent | `pest_agent.py` | Pest identification & management | `vector_database` |
+| Image Agent | `image_agent.py` | Describes a farmer-submitted crop photo | `image_model` |
+| General Agent | `general_agent.py` | Fallback for anything else | `vector_database` (via `RAGPipeline`) |
+| Report Agent | `report_agent.py` | Combines every agent's findings into one report | — (reasons over other agents' `AgentResult`s) |
 
 The five knowledge-backed specialists (Disease, Fertilizer, Pest, Soil,
 Government) share one implementation, `knowledge_agent.py` — each is a
@@ -137,9 +144,18 @@ curl -X POST http://localhost:8001/api/agents/ask \
 }
 ```
 
+Attach a photo (Phase 9) with the top-level `image_base64` field —
+either a bare base64 string or a full `data:image/jpeg;base64,...` URL:
+
+```bash
+curl -X POST http://localhost:8001/api/agents/ask \
+     -H "Content-Type: application/json" \
+     -d "{\"question\": \"what is wrong with this plant?\", \"image_base64\": \"$(base64 -w0 leaf.jpg)\"}"
+```
+
 `GET /health` reports API + knowledge base + LLM readiness. `GET
 /api/agents` lists every registered agent and its one-line
-responsibility.
+
 
 ## Planner Agent: the manager (Phase 8)
 
@@ -199,29 +215,32 @@ matches confidently. The Report Agent also receives the full plan (via
 the plan intended instead of re-guessing why each specialist was
 consulted.
 
+
 ## Files
 
 | File | Responsibility |
 |---|---|
-| `agent_config.py` | Every Phase-7-specific setting (planner mode, weather/market config, API port) |
+| `agent_config.py` | Every Phase-7/8/9-specific setting (planner mode, weather/market/gov-search/image config, API port) |
 | `rag_bridge.py` | Re-exports Phase 6's embedder/vector store/retriever/LLM client/RAG pipeline |
 | `agent_types.py` | Shared `AgentRequest` / `AgentResult` / `PlanDecision` / `PlanStep` dataclasses |
 | `base_agent.py` | Abstract base class every agent implements; catches per-agent failures |
-| `knowledge_agent.py` | Shared retrieval + grounded-generation logic for the 5 RAG-backed agents |
+| `tools/` | Phase 9 — `BaseTool` contract + Weather API / Market Price API / Government PDF Search / Vector Database / Image Model tools |
+| `knowledge_agent.py` | Shared retrieval (via `tools.vector_db_tool`) + grounded-generation logic for the RAG-backed agents |
 | `planner_agent.py` | Decides which agent(s) should run |
 | `disease_agent.py` | Crop disease diagnosis & treatment |
 | `fertilizer_agent.py` | Fertilizer type, dosage, timing |
 | `pest_agent.py` | Pest identification & management |
 | `soil_agent.py` | Soil health, pH, land preparation |
-| `government_agent.py` | Government schemes, subsidies, guidelines |
-| `weather_agent.py` | Live forecast + farming implications (Open-Meteo) |
-| `market_agent.py` | Crop market prices + sell/hold guidance |
+| `government_agent.py` | Government schemes, subsidies, guidelines (vector DB + PDF search) |
+| `weather_agent.py` | Live forecast + farming implications (via `tools.weather_tool`) |
+| `market_agent.py` | Crop market prices + sell/hold guidance (via `tools.market_price_tool`) |
+| `image_agent.py` | Describes an attached crop photo (via `tools.image_model_tool`) |
 | `general_agent.py` | Fallback: plain Phase 6 RAG over the whole knowledge base |
 | `report_agent.py` | Combines every agent's findings into one final report |
-| `agent_orchestrator.py` | The main orchestrator — `AgentOrchestrator().handle(question)` |
-| `main.py` | Interactive CLI entry point |
-| `api.py` | FastAPI service (`/api/agents/ask`, `/api/agents`, `/health`) |
-| `data/market_prices_sample.json` | Demo price dataset used by the Market Agent |
+| `agent_orchestrator.py` | The main orchestrator — `AgentOrchestrator().handle(question, context)` |
+| `main.py` | Interactive CLI entry point (`--image <path>` to attach a photo) |
+| `api.py` | FastAPI service (`/api/agents/ask`, `/api/agents`, `/api/tools`, `/health`) |
+| `data/market_prices_sample.json` | Demo price dataset used by the Market Agent / `MarketPriceTool` |
 
 ## Design notes
 
@@ -254,3 +273,4 @@ consulted.
   invisibly into which agents happen to fire) is what keeps the
   Planner's decisions explainable to a farmer, a developer, and this
   README all at once.
+
