@@ -1,4 +1,4 @@
-# Agents-Pipeline (Phase 7)
+# Agents-Pipeline (Phase 7 + Phase 8)
 
 Turns the single-shot question-answering assistant from `RAG-Pipeline`
 (Phase 6) into **Agentic AI**: instead of one generalist retriever, a
@@ -6,13 +6,20 @@ Turns the single-shot question-answering assistant from `RAG-Pipeline`
 question needs, each does its one job, and a **Report Agent** combines
 everything into one consolidated, source-cited recommendation.
 
+Phase 8 upgrades the Planner from a flat router into "the manager": it
+now produces a visible reasoning **chain** — "Need X → Need Y → ... →
+Need a recommendation" — including needs the farmer didn't explicitly
+ask for but a good agronomist would still check (see
+[Planner Agent modes](#planner-agent-modes) below for the canonical
+"Should I apply fertilizer tomorrow?" example).
+
 ```
 Farmer asks
      │
      ▼
 ┌────────────────────── Planner Agent ───────────────────────────┐
-│  planner_agent.py → decides WHICH agent(s) below should run      │
-└──────────────────────────────────────────────────────────────┘
+│  planner_agent.py → decides WHICH agent(s) below should run    │
+└────────────────────────────────────────────────────────────────┘
      │
      ▼
 ┌───────────┬───────────┬───────────┬─────────────┬───────────┬─────────────┬───────────┐
@@ -22,9 +29,9 @@ Farmer asks
      │ (each agent runs independently — one failing never stops the others)
      ▼
 ┌────────────────────── Report Agent ────────────────────────────┐
-│  report_agent.py → combines every agent's findings into ONE      │
-│                     consolidated, source-cited recommendation     │
-└──────────────────────────────────────────────────────────────┘
+│  report_agent.py → combines every agent's findings into ONE    │
+│                     consolidated, source-cited recommendation  │
+└────────────────────────────────────────────────────────────────┘
      │
      ▼
         Reliable farming recommendation
@@ -134,23 +141,63 @@ curl -X POST http://localhost:8001/api/agents/ask \
 /api/agents` lists every registered agent and its one-line
 responsibility.
 
-## Planner Agent modes
+## Planner Agent: the manager (Phase 8)
 
-* **`PLANNER_MODE=keyword`** (default) — fast, free, deterministic.
-  Matches the question against a per-agent keyword list
-  (`_KEYWORD_MAP` in `planner_agent.py`). Zero extra latency and zero
-  extra LLM spend; the trade-off is it only recognizes phrasing it has
-  keywords for.
-* **`PLANNER_MODE=llm`** — asks the configured LLM to choose agents as
-  strict JSON. Copes better with unusual phrasing or multi-intent
-  questions, at the cost of one extra LLM call per question. Falls
+Given **"Should I apply fertilizer tomorrow?"** — a question that only
+mentions fertilizer — the Planner produces this reasoning chain:
+
+```
+Need the weather outlook            → weather_agent
+    (rain shortly after application can wash fertilizer away)
+        ↓
+Need the fertilizer type, dosage and timing → fertilizer_agent
+    (the farmer's core question)
+        ↓
+Need the crop's growth stage         → soil_agent
+    (fertilizer needs change with growth stage)
+        ↓
+Need rainfall in the coming days      → weather_agent
+    (confirms conditions stay dry long enough)
+        ↓
+Need a final recommendation            → report_agent
+    (combines everything above)
+```
+
+Every `PlanStep` in that chain (`agent_types.PlanStep`) carries a
+`need`, the `agent` that supplies it, and a `reason` — the chain is
+inspectable end-to-end via `PlanDecision.steps`, not just a flat
+`agents_to_run` list. Fertilizer, pest and disease questions each have
+a hand-authored chain like this in `planner_agent._REASONING_CHAINS`,
+because those three domains most often need a weather check the
+farmer didn't think to ask for. Simpler domains (market, soil,
+government, weather itself) get a single-step chain. `agents_to_run`
+is the flattened, de-duplicated, execution-order list the orchestrator
+actually runs — `report_agent` is excluded from it since the
+orchestrator runs the Report Agent separately (see
+`agent_orchestrator.py`).
+
+**Two routing modes**, chosen via `PLANNER_MODE`:
+
+* **`keyword`** (default) — fast, free, deterministic. Matches the
+  question against a per-agent keyword list, then looks up that
+  domain's reasoning chain. Zero extra latency and zero extra LLM
+  spend; the trade-off is it only recognizes phrasing it has keywords
+  for, and its dependency chains are fixed in advance.
+* **`llm`** — asks the configured LLM to produce the WHOLE reasoning
+  chain (needs, agents, reasons) as strict JSON, the way an agronomist
+  would think out loud. Copes better with unusual phrasing,
+  multi-intent questions, or dependencies the hand-authored chains
+  don't cover, at the cost of one extra LLM call per question. Falls
   back to keyword routing automatically if the LLM call or its JSON
   parsing fails.
 
-Both modes cap the number of agents run per request at
+Both modes cap the number of agents *run* per request at
 `PLANNER_MAX_AGENTS_PER_REQUEST` (default 4) to keep latency and LLM
 spend bounded, and both fall back to the General Agent when nothing
-matches confidently.
+matches confidently. The Report Agent also receives the full plan (via
+`agent_orchestrator.py`), so the final report can be framed the way
+the plan intended instead of re-guessing why each specialist was
+consulted.
 
 ## Files
 
@@ -158,7 +205,7 @@ matches confidently.
 |---|---|
 | `agent_config.py` | Every Phase-7-specific setting (planner mode, weather/market config, API port) |
 | `rag_bridge.py` | Re-exports Phase 6's embedder/vector store/retriever/LLM client/RAG pipeline |
-| `agent_types.py` | Shared `AgentRequest` / `AgentResult` / `PlanDecision` dataclasses |
+| `agent_types.py` | Shared `AgentRequest` / `AgentResult` / `PlanDecision` / `PlanStep` dataclasses |
 | `base_agent.py` | Abstract base class every agent implements; catches per-agent failures |
 | `knowledge_agent.py` | Shared retrieval + grounded-generation logic for the 5 RAG-backed agents |
 | `planner_agent.py` | Decides which agent(s) should run |
@@ -198,3 +245,12 @@ matches confidently.
   depend on the LLM being reachable just to decide who should answer;
   `PLANNER_MODE=llm` is there for when phrasing is too varied for
   keywords to catch reliably.
+* **Reasoning chains, not just routing (Phase 8).** The Planner infers
+  needs the farmer didn't state — a fertilizer-timing question always
+  gets a weather check, a pest/disease question always gets a
+  spraying-conditions check — because that's what a competent
+  agronomist does automatically. Making that chain a first-class,
+  inspectable `PlanStep` list (rather than baking the dependency logic
+  invisibly into which agents happen to fire) is what keeps the
+  Planner's decisions explainable to a farmer, a developer, and this
+  README all at once.
