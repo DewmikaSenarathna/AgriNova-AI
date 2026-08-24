@@ -65,15 +65,42 @@ class AgentResult:
 
 
 @dataclass
+class PlanStep:
+    """
+    One link in the Planner Agent's reasoning chain — "the manager
+    thinking out loud". A farmer asking "Should I apply fertilizer
+    tomorrow?" only mentions fertilizer, but answering it well needs a
+    small chain of information:
+
+        Need weather -> Need fertilizer schedule -> Need crop stage
+        -> Need rainfall -> Need recommendation
+
+    Each PlanStep captures ONE of those needs: what's needed, which
+    agent supplies it, and why. `agents_to_run` is the flattened list
+    of agents this chain calls for; `steps` is the chain itself, kept
+    around so the Planner's reasoning stays inspectable instead of
+    collapsing into an opaque list of agent names.
+    """
+    need: str
+    agent: str
+    reason: str
+
+    def to_dict(self) -> dict:
+        return {"need": self.need, "agent": self.agent, "reason": self.reason}
+
+
+@dataclass
 class PlanDecision:
     """The Planner Agent's routing decision for one farmer question."""
     agents_to_run: List[str]
     reasoning: str
     method: str  # "keyword" or "llm"
+    steps: List[PlanStep] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
             "agents_to_run": self.agents_to_run,
             "reasoning": self.reasoning,
             "method": self.method,
+            "steps": [s.to_dict() for s in self.steps],
         }
