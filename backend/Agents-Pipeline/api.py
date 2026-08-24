@@ -52,7 +52,7 @@ class AskRequest(BaseModel):
     question: str = Field(..., min_length=1, description="The farmer's question.")
     context: Optional[Dict[str, Any]] = Field(
         default=None,
-        description="Optional hints, e.g. {\"crop\": \"coconut\", \"location\": \"Kurunegala\"}.",
+        description="Optional hints, e.g. {\"crop\": \"tomato\", \"location\": \"Kurunegala\"}.",
     )
 
 
@@ -66,10 +66,17 @@ class AgentResultOut(BaseModel):
     error: Optional[str]
 
 
+class PlanStepOut(BaseModel):
+    need: str
+    agent: str
+    reason: str
+
+
 class PlanOut(BaseModel):
     agents_to_run: List[str]
     reasoning: str
     method: str
+    steps: List[PlanStepOut]
 
 
 class AskResponse(BaseModel):

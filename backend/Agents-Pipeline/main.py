@@ -19,11 +19,17 @@ def configure_logging():
 
 def print_answer(result: OrchestratedAnswer):
     print(f"\n{'='*70}")
-    print(f"PLAN  (via {result.plan.method})")
+    print(f"PLANNER'S REASONING  (via {result.plan.method})")
     print("=" * 70)
-    print(f"Agents run: {', '.join(result.plan.agents_to_run)}")
-    if result.plan.reasoning:
-        print(f"Reasoning: {result.plan.reasoning}")
+    if result.plan.steps:
+        for i, step in enumerate(result.plan.steps, start=1):
+            arrow = "" if i == len(result.plan.steps) else "\n   ↓"
+            print(f"{i}. Need {step.need}  →  {step.agent}")
+            print(f"   ({step.reason}){arrow}")
+    else:
+        print(f"Agents run: {', '.join(result.plan.agents_to_run)}")
+        if result.plan.reasoning:
+            print(f"Reasoning: {result.plan.reasoning}")
 
     for r in result.agent_results:
         print(f"\n{'-'*70}\n{r.agent_name.upper()}  (grounded={r.grounded})\n{'-'*70}")
