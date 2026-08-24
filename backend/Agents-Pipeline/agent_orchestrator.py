@@ -86,9 +86,12 @@ class AgentOrchestrator:
                 final_report=empty_report,
             )
 
-        # Step 1 — Planner Agent decides WHO handles this question.
+        # Step 1 — Planner Agent decides WHO handles this question, and WHY
+        # (see planner_agent.py — this is now a reasoning chain, not just a
+        # flat agent list).
         plan = self.planner.plan(question)
-        logger.info(f"Planner selected {plan.agents_to_run} via {plan.method}: {plan.reasoning}")
+        logger.info(f"Planner chain ({plan.method}): {plan.reasoning}")
+        logger.info(f"Planner selected agents to run: {plan.agents_to_run}")
 
         # Step 2 — Run each selected specialist independently.
         agent_results: List[AgentResult] = []
@@ -109,9 +112,14 @@ class AgentOrchestrator:
             )
 
         # Step 3 — Report Agent synthesizes everything into one answer.
+        # The Planner's reasoning chain is passed through too, so the
+        # Report Agent can frame the answer the way the plan intended
+        # (e.g. "the Planner flagged this as a fertilizer-timing decision
+        # that also depends on the weather") rather than re-guessing why
+        # each specialist was consulted.
         report_request = AgentRequest(
             query=question,
-            context={**context, "agent_results": agent_results},
+            context={**context, "agent_results": agent_results, "plan": plan},
         )
         final_report = self.report_agent.execute(report_request)
 
