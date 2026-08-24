@@ -1,4 +1,4 @@
-# Agents-Pipeline (Phase 7)
+# Agents-Pipeline (Phase 7 + Phase 8 + Phase 9)
 
 Turns the single-shot question-answering assistant from `RAG-Pipeline`
 (Phase 6) into **Agentic AI**: instead of one generalist retriever, a
@@ -6,8 +6,21 @@ Turns the single-shot question-answering assistant from `RAG-Pipeline`
 question needs, each does its one job, and a **Report Agent** combines
 everything into one consolidated, source-cited recommendation.
 
+Phase 8 upgrades the Planner from a flat router into "the manager": it
+now produces a visible reasoning **chain** — "Need X → Need Y → ... →
+Need a recommendation" — including needs the farmer didn't explicitly
+ask for but a good agronomist would still check (see
+[Planner Agent modes](#planner-agent-modes) below for the canonical
+"Should I apply fertilizer tomorrow?" example).
+
+Phase 9 gives agents **tools**: a `tools/` package that formalizes
+every external capability an agent reaches for (an HTTP API, a local
+dataset, a full-text search, a vector database, a vision model) behind
+one shared interface — see [Connect External Tools](#connect-external-tools-phase-9)
+below.
+
 ```
-Farmer asks
+Farmer asks (+ optional photo)
      │
      ▼
 ┌────────────────────── Planner Agent ───────────────────────────┐
@@ -15,10 +28,15 @@ Farmer asks
 └──────────────────────────────────────────────────────────────┘
      │
      ▼
-┌───────────┬───────────┬───────────┬─────────────┬───────────┬─────────────┬───────────┐
-│  Disease  │  Weather  │  Market   │ Government  │   Soil    │ Fertilizer  │   Pest    │
-│  Agent    │  Agent    │  Agent    │  Agent      │  Agent    │  Agent      │  Agent    │
-└───────────┴───────────┴───────────┴─────────────┴───────────┴─────────────┴───────────┘
+┌───────────┬───────────┬───────────┬─────────────┬───────────┬─────────────┬───────────┬───────────┐
+│  Disease  │  Weather  │  Market   │ Government  │   Soil    │ Fertilizer  │   Pest    │   Image   │
+│  Agent    │  Agent    │  Agent    │  Agent      │  Agent    │  Agent      │  Agent    │   Agent   │
+│    │      │    │      │    │      │   │    │    │    │      │             │           │     │     │
+│    ▼      │    ▼      │    ▼      │   ▼    ▼    │    ▼      │      ▼      │     ▼     │     ▼     │
+│ Vector DB │ Weather   │ Market    │ Vector DB    │ Vector DB │  Vector DB  │ Vector DB │  Image    │
+│  tool     │ API tool  │ Price API │ + Gov PDF    │  tool     │    tool     │   tool    │  Model    │
+│           │           │  tool     │ Search tools │           │             │           │   tool    │
+└───────────┴───────────┴───────────┴─────────────┴───────────┴─────────────┴───────────┴───────────┘
      │ (each agent runs independently — one failing never stops the others)
      ▼
 ┌────────────────────── Report Agent ────────────────────────────┐
@@ -37,18 +55,19 @@ answer instead of an empty routing table.
 
 ## Each agent, single responsibility
 
-| Agent | File | Responsibility | Evidence source |
+| Agent | File | Responsibility | Tool(s) it calls (Phase 9) |
 |---|---|---|---|
-| Planner Agent | `planner_agent.py` | Decides which specialist(s) a question needs | keyword rules, or the LLM (`PLANNER_MODE=llm`) |
-| Disease Agent | `disease_agent.py` | Crop disease diagnosis & treatment | knowledge base (RAG) |
-| Weather Agent | `weather_agent.py` | Short-range forecast & farming implications | live Open-Meteo API call |
-| Market Agent | `market_agent.py` | Crop market prices & sell/hold guidance | local price dataset, then knowledge base |
-| Government Agent | `government_agent.py` | Schemes, subsidies, official guidelines | knowledge base (RAG) |
-| Soil Agent | `soil_agent.py` | Soil health, pH, land preparation | knowledge base (RAG) |
-| Fertilizer Agent | `fertilizer_agent.py` | Fertilizer type, dosage, timing | knowledge base (RAG) |
-| Pest Agent | `pest_agent.py` | Pest identification & management | knowledge base (RAG) |
-| General Agent | `general_agent.py` | Fallback for anything else | knowledge base (RAG), whole KB |
-| Report Agent | `report_agent.py` | Combines every agent's findings into one report | the other agents' `AgentResult`s |
+| Planner Agent | `planner_agent.py` | Decides which specialist(s) a question needs | — (keyword rules, or the LLM if `PLANNER_MODE=llm`) |
+| Disease Agent | `disease_agent.py` | Crop disease diagnosis & treatment | `vector_database` |
+| Weather Agent | `weather_agent.py` | Short-range forecast & farming implications | `weather_api` |
+| Market Agent | `market_agent.py` | Crop market prices & sell/hold guidance | `market_price_api`, then `vector_database` |
+| Government Agent | `government_agent.py` | Schemes, subsidies, official guidelines | `government_pdf_search` **and** `vector_database` |
+| Soil Agent | `soil_agent.py` | Soil health, pH, land preparation | `vector_database` |
+| Fertilizer Agent | `fertilizer_agent.py` | Fertilizer type, dosage, timing | `vector_database` |
+| Pest Agent | `pest_agent.py` | Pest identification & management | `vector_database` |
+| Image Agent | `image_agent.py` | Describes a farmer-submitted crop photo | `image_model` |
+| General Agent | `general_agent.py` | Fallback for anything else | `vector_database` (via `RAGPipeline`) |
+| Report Agent | `report_agent.py` | Combines every agent's findings into one report | — (reasons over other agents' `AgentResult`s) |
 
 The five knowledge-backed specialists (Disease, Fertilizer, Pest, Soil,
 Government) share one implementation, `knowledge_agent.py` — each is a
@@ -130,51 +149,175 @@ curl -X POST http://localhost:8001/api/agents/ask \
 }
 ```
 
+Attach a photo (Phase 9) with the top-level `image_base64` field —
+either a bare base64 string or a full `data:image/jpeg;base64,...` URL:
+
+```bash
+curl -X POST http://localhost:8001/api/agents/ask \
+     -H "Content-Type: application/json" \
+     -d "{\"question\": \"what is wrong with this plant?\", \"image_base64\": \"$(base64 -w0 leaf.jpg)\"}"
+```
+
 `GET /health` reports API + knowledge base + LLM readiness. `GET
 /api/agents` lists every registered agent and its one-line
-responsibility.
+responsibility. `GET /api/tools` (Phase 9) lists every external tool
+and which agent(s) use it.
 
-## Planner Agent modes
+## Planner Agent: the manager (Phase 8)
 
-* **`PLANNER_MODE=keyword`** (default) — fast, free, deterministic.
-  Matches the question against a per-agent keyword list
-  (`_KEYWORD_MAP` in `planner_agent.py`). Zero extra latency and zero
-  extra LLM spend; the trade-off is it only recognizes phrasing it has
-  keywords for.
-* **`PLANNER_MODE=llm`** — asks the configured LLM to choose agents as
-  strict JSON. Copes better with unusual phrasing or multi-intent
-  questions, at the cost of one extra LLM call per question. Falls
+Given **"Should I apply fertilizer tomorrow?"** — a question that only
+mentions fertilizer — the Planner produces this reasoning chain:
+
+```
+Need the weather outlook            → weather_agent
+    (rain shortly after application can wash fertilizer away)
+        ↓
+Need the fertilizer type, dosage and timing → fertilizer_agent
+    (the farmer's core question)
+        ↓
+Need the crop's growth stage         → soil_agent
+    (fertilizer needs change with growth stage)
+        ↓
+Need rainfall in the coming days      → weather_agent
+    (confirms conditions stay dry long enough)
+        ↓
+Need a final recommendation            → report_agent
+    (combines everything above)
+```
+
+Every `PlanStep` in that chain (`agent_types.PlanStep`) carries a
+`need`, the `agent` that supplies it, and a `reason` — the chain is
+inspectable end-to-end via `PlanDecision.steps`, not just a flat
+`agents_to_run` list. Fertilizer, pest and disease questions each have
+a hand-authored chain like this in `planner_agent._REASONING_CHAINS`,
+because those three domains most often need a weather check the
+farmer didn't think to ask for. Simpler domains (market, soil,
+government, weather itself) get a single-step chain. `agents_to_run`
+is the flattened, de-duplicated, execution-order list the orchestrator
+actually runs — `report_agent` is excluded from it since the
+orchestrator runs the Report Agent separately (see
+`agent_orchestrator.py`).
+
+**Two routing modes**, chosen via `PLANNER_MODE`:
+
+* **`keyword`** (default) — fast, free, deterministic. Matches the
+  question against a per-agent keyword list, then looks up that
+  domain's reasoning chain. Zero extra latency and zero extra LLM
+  spend; the trade-off is it only recognizes phrasing it has keywords
+  for, and its dependency chains are fixed in advance.
+* **`llm`** — asks the configured LLM to produce the WHOLE reasoning
+  chain (needs, agents, reasons) as strict JSON, the way an agronomist
+  would think out loud. Copes better with unusual phrasing,
+  multi-intent questions, or dependencies the hand-authored chains
+  don't cover, at the cost of one extra LLM call per question. Falls
   back to keyword routing automatically if the LLM call or its JSON
   parsing fails.
 
-Both modes cap the number of agents run per request at
+Both modes cap the number of agents *run* per request at
 `PLANNER_MAX_AGENTS_PER_REQUEST` (default 4) to keep latency and LLM
 spend bounded, and both fall back to the General Agent when nothing
-matches confidently.
+matches confidently. The Report Agent also receives the full plan (via
+`agent_orchestrator.py`), so the final report can be framed the way
+the plan intended instead of re-guessing why each specialist was
+consulted.
+
+## Connect External Tools (Phase 9)
+
+Agents become powerful when they can use tools. Every external
+capability an agent reaches for now lives in `tools/`, behind one
+shared contract (`tools/base_tool.py`'s `BaseTool` — same
+"single-responsibility, never raise out of the public entry point"
+design as `base_agent.py`, one layer down):
+
+| Tool | File | Used by | External capability |
+|---|---|---|---|
+| Weather API | `tools/weather_tool.py` | Weather Agent | Open-Meteo geocoding + forecast |
+| Market Price API | `tools/market_price_tool.py` | Market Agent | Local price dataset (swap for a live pricing API) |
+| Government PDF Search | `tools/government_pdf_search_tool.py` | Government Agent | Full-text keyword search over processed official PDFs |
+| Vector Database | `tools/vector_db_tool.py` | Disease / Pest / Fertilizer / Soil / Government / Market / General Agent | Shared ChromaDB similarity search |
+| Image Model | `tools/image_model_tool.py` | Image Agent | Vision-capable LLM (crop photo → plain-language description) |
+
+```
+Agent
+  │
+  ▼
+tool.execute(**kwargs)   ← never raises; degrades to ToolResult(ok=False, error=...)
+  │
+  ▼
+tool.run(**kwargs)        ← subclass implements the one external call here
+  │
+  ▼
+ToolResult(ok, data, text, source, error)
+```
+
+Why tools are a layer separate from agents at all: several agents need
+the *same* capability. Every knowledge-backed agent needs the vector
+database; the Government Agent needs it *and* a PDF full-text search.
+Putting each capability behind one tool means there's exactly one
+place to swap Open-Meteo for a different weather provider, swap the
+local market JSON for a live pricing API, or point the vision model at
+a different backend — without touching the agents that call it.
+
+**Government Agent now calls two tools.** It merges semantic search
+(`vector_database` — good at "what's this about" even when wording
+doesn't match) with literal keyword search over the original PDF text
+(`government_pdf_search` — good at an exact scheme name or clause, and
+works independently of the embedding model / ChromaDB being healthy).
+`government_pdf_search` reads `Document-Processing-Pipeline`'s own
+`output/clean_text/*.txt` + `output/metadata/*.json`, filtered to
+documents whose `document_type` is `"Government Scheme"` (see that
+pipeline's `metadata.py` — the keywords `government`/`scheme`/
+`subsidy`/`gazette`/`ministry` all map to that label).
+
+**Image Agent + Image Model tool.** A farmer can attach a photo
+(`context["image_base64"]`, or the API's top-level `image_base64`
+field). `image_agent.py` sends it to a vision-capable LLM via
+`LLMClient.generate_vision()` (see `../RAG-Pipeline/llm_client.py`,
+configured through `OLLAMA_VISION_MODEL` / `GROQ_VISION_MODEL` /
+`OPENAI_COMPATIBLE_VISION_MODEL` in `../RAG-Pipeline/.env`) and returns
+a plain-language description of what's visible — never a diagnosis
+itself, and always `grounded=False` since it's model inference, not
+retrieved evidence. `agent_orchestrator.py` runs the Image Agent
+*first* whenever one is selected (or auto-injects it into the plan the
+moment a photo is attached, even if the question's wording didn't
+mention one) and folds its description into every other selected
+agent's context as `context["image_description"]` — so a photo of
+yellowing, spotted leaves can help Disease Agent find the right
+knowledge-base sources even if the farmer's own words never said
+"yellowing" or "spots" (see `knowledge_agent.py`'s use of that key).
+
+**Nothing about existing agent behaviour changed** — Weather/Market
+Agent's outward behaviour is identical to Phase 7/8, they just call
+`WeatherTool`/`MarketPriceTool` instead of doing the HTTP/JSON work
+inline. `GET /api/tools` lists every registered tool and which
+agent(s) use it, the same way `GET /api/agents` already did for
+agents.
 
 ## Files
 
 | File | Responsibility |
 |---|---|
-| `agent_config.py` | Every Phase-7-specific setting (planner mode, weather/market config, API port) |
+| `agent_config.py` | Every Phase-7/8/9-specific setting (planner mode, weather/market/gov-search/image config, API port) |
 | `rag_bridge.py` | Re-exports Phase 6's embedder/vector store/retriever/LLM client/RAG pipeline |
-| `agent_types.py` | Shared `AgentRequest` / `AgentResult` / `PlanDecision` dataclasses |
+| `agent_types.py` | Shared `AgentRequest` / `AgentResult` / `PlanDecision` / `PlanStep` dataclasses |
 | `base_agent.py` | Abstract base class every agent implements; catches per-agent failures |
-| `knowledge_agent.py` | Shared retrieval + grounded-generation logic for the 5 RAG-backed agents |
+| `tools/` | Phase 9 — `BaseTool` contract + Weather API / Market Price API / Government PDF Search / Vector Database / Image Model tools |
+| `knowledge_agent.py` | Shared retrieval (via `tools.vector_db_tool`) + grounded-generation logic for the RAG-backed agents |
 | `planner_agent.py` | Decides which agent(s) should run |
 | `disease_agent.py` | Crop disease diagnosis & treatment |
 | `fertilizer_agent.py` | Fertilizer type, dosage, timing |
 | `pest_agent.py` | Pest identification & management |
 | `soil_agent.py` | Soil health, pH, land preparation |
-| `government_agent.py` | Government schemes, subsidies, guidelines |
-| `weather_agent.py` | Live forecast + farming implications (Open-Meteo) |
-| `market_agent.py` | Crop market prices + sell/hold guidance |
+| `government_agent.py` | Government schemes, subsidies, guidelines (vector DB + PDF search) |
+| `weather_agent.py` | Live forecast + farming implications (via `tools.weather_tool`) |
+| `market_agent.py` | Crop market prices + sell/hold guidance (via `tools.market_price_tool`) |
+| `image_agent.py` | Describes an attached crop photo (via `tools.image_model_tool`) |
 | `general_agent.py` | Fallback: plain Phase 6 RAG over the whole knowledge base |
 | `report_agent.py` | Combines every agent's findings into one final report |
-| `agent_orchestrator.py` | The main orchestrator — `AgentOrchestrator().handle(question)` |
-| `main.py` | Interactive CLI entry point |
-| `api.py` | FastAPI service (`/api/agents/ask`, `/api/agents`, `/health`) |
-| `data/market_prices_sample.json` | Demo price dataset used by the Market Agent |
+| `agent_orchestrator.py` | The main orchestrator — `AgentOrchestrator().handle(question, context)` |
+| `main.py` | Interactive CLI entry point (`--image <path>` to attach a photo) |
+| `api.py` | FastAPI service (`/api/agents/ask`, `/api/agents`, `/api/tools`, `/health`) |
+| `data/market_prices_sample.json` | Demo price dataset used by the Market Agent / `MarketPriceTool` |
 
 ## Design notes
 
@@ -198,3 +341,20 @@ matches confidently.
   depend on the LLM being reachable just to decide who should answer;
   `PLANNER_MODE=llm` is there for when phrasing is too varied for
   keywords to catch reliably.
+* **Reasoning chains, not just routing (Phase 8).** The Planner infers
+  needs the farmer didn't state — a fertilizer-timing question always
+  gets a weather check, a pest/disease question always gets a
+  spraying-conditions check — because that's what a competent
+  agronomist does automatically. Making that chain a first-class,
+  inspectable `PlanStep` list (rather than baking the dependency logic
+  invisibly into which agents happen to fire) is what keeps the
+  Planner's decisions explainable to a farmer, a developer, and this
+  README all at once.
+* **Tools are a separate layer from agents (Phase 9).** An agent
+  *reasons about* what a tool returns; it doesn't know or care how the
+  tool reaches an external system. That split is what let the
+  Government Agent gain a second evidence source (PDF search) and the
+  whole pipeline gain an Image Agent without touching any other
+  agent's code, and it's the one place to swap a demo integration
+  (the local market-price JSON, Open-Meteo) for a production one
+  later.
