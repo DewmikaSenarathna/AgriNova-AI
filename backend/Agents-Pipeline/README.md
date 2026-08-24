@@ -1,4 +1,4 @@
-
+# Agents-Pipeline (Phase 7 + Phase 8 + Phase 9)
 
 Turns the single-shot question-answering assistant from `RAG-Pipeline`
 (Phase 6) into **Agentic AI**: instead of one generalist retriever, a
@@ -13,14 +13,19 @@ ask for but a good agronomist would still check (see
 [Planner Agent modes](#planner-agent-modes) below for the canonical
 "Should I apply fertilizer tomorrow?" example).
 
+Phase 9 gives agents **tools**: a `tools/` package that formalizes
+every external capability an agent reaches for (an HTTP API, a local
+dataset, a full-text search, a vector database, a vision model) behind
+one shared interface — see [Connect External Tools](#connect-external-tools-phase-9)
+below.
 
 ```
 Farmer asks (+ optional photo)
      │
      ▼
 ┌────────────────────── Planner Agent ───────────────────────────┐
-│  planner_agent.py → decides WHICH agent(s) below should run    │
-└────────────────────────────────────────────────────────────────┘
+│  planner_agent.py → decides WHICH agent(s) below should run      │
+└──────────────────────────────────────────────────────────────┘
      │
      ▼
 ┌───────────┬───────────┬───────────┬─────────────┬───────────┬─────────────┬───────────┬───────────┐
@@ -28,16 +33,16 @@ Farmer asks (+ optional photo)
 │  Agent    │  Agent    │  Agent    │  Agent      │  Agent    │  Agent      │  Agent    │   Agent   │
 │    │      │    │      │    │      │   │    │    │    │      │             │           │     │     │
 │    ▼      │    ▼      │    ▼      │   ▼    ▼    │    ▼      │      ▼      │     ▼     │     ▼     │
-│ Vector DB │ Weather   │ Market    │ Vector DB    │ Vector DB│  Vector DB  │ Vector DB │  Image    │
-│  tool     │ API tool  │ Price API │ + Gov PDF    │  tool    │    tool     │   tool    │  Model    │
-│           │           │  tool     │ Search tools │          │             │           │   tool    │
+│ Vector DB │ Weather   │ Market    │ Vector DB    │ Vector DB │  Vector DB  │ Vector DB │  Image    │
+│  tool     │ API tool  │ Price API │ + Gov PDF    │  tool     │    tool     │   tool    │  Model    │
+│           │           │  tool     │ Search tools │           │             │           │   tool    │
 └───────────┴───────────┴───────────┴─────────────┴───────────┴─────────────┴───────────┴───────────┘
      │ (each agent runs independently — one failing never stops the others)
      ▼
 ┌────────────────────── Report Agent ────────────────────────────┐
-│  report_agent.py → combines every agent's findings into ONE    │
-│                     consolidated, source-cited recommendation  │
-└────────────────────────────────────────────────────────────────┘
+│  report_agent.py → combines every agent's findings into ONE      │
+│                     consolidated, source-cited recommendation     │
+└──────────────────────────────────────────────────────────────┘
      │
      ▼
         Reliable farming recommendation
@@ -155,7 +160,8 @@ curl -X POST http://localhost:8001/api/agents/ask \
 
 `GET /health` reports API + knowledge base + LLM readiness. `GET
 /api/agents` lists every registered agent and its one-line
-
+responsibility. `GET /api/tools` (Phase 9) lists every external tool
+and which agent(s) use it.
 
 ## Planner Agent: the manager (Phase 8)
 
@@ -215,6 +221,77 @@ matches confidently. The Report Agent also receives the full plan (via
 the plan intended instead of re-guessing why each specialist was
 consulted.
 
+## Connect External Tools (Phase 9)
+
+Agents become powerful when they can use tools. Every external
+capability an agent reaches for now lives in `tools/`, behind one
+shared contract (`tools/base_tool.py`'s `BaseTool` — same
+"single-responsibility, never raise out of the public entry point"
+design as `base_agent.py`, one layer down):
+
+| Tool | File | Used by | External capability |
+|---|---|---|---|
+| Weather API | `tools/weather_tool.py` | Weather Agent | Open-Meteo geocoding + forecast |
+| Market Price API | `tools/market_price_tool.py` | Market Agent | Local price dataset (swap for a live pricing API) |
+| Government PDF Search | `tools/government_pdf_search_tool.py` | Government Agent | Full-text keyword search over processed official PDFs |
+| Vector Database | `tools/vector_db_tool.py` | Disease / Pest / Fertilizer / Soil / Government / Market / General Agent | Shared ChromaDB similarity search |
+| Image Model | `tools/image_model_tool.py` | Image Agent | Vision-capable LLM (crop photo → plain-language description) |
+
+```
+Agent
+  │
+  ▼
+tool.execute(**kwargs)   ← never raises; degrades to ToolResult(ok=False, error=...)
+  │
+  ▼
+tool.run(**kwargs)        ← subclass implements the one external call here
+  │
+  ▼
+ToolResult(ok, data, text, source, error)
+```
+
+Why tools are a layer separate from agents at all: several agents need
+the *same* capability. Every knowledge-backed agent needs the vector
+database; the Government Agent needs it *and* a PDF full-text search.
+Putting each capability behind one tool means there's exactly one
+place to swap Open-Meteo for a different weather provider, swap the
+local market JSON for a live pricing API, or point the vision model at
+a different backend — without touching the agents that call it.
+
+**Government Agent now calls two tools.** It merges semantic search
+(`vector_database` — good at "what's this about" even when wording
+doesn't match) with literal keyword search over the original PDF text
+(`government_pdf_search` — good at an exact scheme name or clause, and
+works independently of the embedding model / ChromaDB being healthy).
+`government_pdf_search` reads `Document-Processing-Pipeline`'s own
+`output/clean_text/*.txt` + `output/metadata/*.json`, filtered to
+documents whose `document_type` is `"Government Scheme"` (see that
+pipeline's `metadata.py` — the keywords `government`/`scheme`/
+`subsidy`/`gazette`/`ministry` all map to that label).
+
+**Image Agent + Image Model tool.** A farmer can attach a photo
+(`context["image_base64"]`, or the API's top-level `image_base64`
+field). `image_agent.py` sends it to a vision-capable LLM via
+`LLMClient.generate_vision()` (see `../RAG-Pipeline/llm_client.py`,
+configured through `OLLAMA_VISION_MODEL` / `GROQ_VISION_MODEL` /
+`OPENAI_COMPATIBLE_VISION_MODEL` in `../RAG-Pipeline/.env`) and returns
+a plain-language description of what's visible — never a diagnosis
+itself, and always `grounded=False` since it's model inference, not
+retrieved evidence. `agent_orchestrator.py` runs the Image Agent
+*first* whenever one is selected (or auto-injects it into the plan the
+moment a photo is attached, even if the question's wording didn't
+mention one) and folds its description into every other selected
+agent's context as `context["image_description"]` — so a photo of
+yellowing, spotted leaves can help Disease Agent find the right
+knowledge-base sources even if the farmer's own words never said
+"yellowing" or "spots" (see `knowledge_agent.py`'s use of that key).
+
+**Nothing about existing agent behaviour changed** — Weather/Market
+Agent's outward behaviour is identical to Phase 7/8, they just call
+`WeatherTool`/`MarketPriceTool` instead of doing the HTTP/JSON work
+inline. `GET /api/tools` lists every registered tool and which
+agent(s) use it, the same way `GET /api/agents` already did for
+agents.
 
 ## Files
 
@@ -273,4 +350,11 @@ consulted.
   invisibly into which agents happen to fire) is what keeps the
   Planner's decisions explainable to a farmer, a developer, and this
   README all at once.
-
+* **Tools are a separate layer from agents (Phase 9).** An agent
+  *reasons about* what a tool returns; it doesn't know or care how the
+  tool reaches an external system. That split is what let the
+  Government Agent gain a second evidence source (PDF search) and the
+  whole pipeline gain an Image Agent without touching any other
+  agent's code, and it's the one place to swap a demo integration
+  (the local market-price JSON, Open-Meteo) for a production one
+  later.
