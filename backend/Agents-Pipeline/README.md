@@ -24,8 +24,8 @@ Farmer asks (+ optional photo)
      │
      ▼
 ┌────────────────────── Planner Agent ───────────────────────────┐
-│  planner_agent.py → decides WHICH agent(s) below should run      │
-└──────────────────────────────────────────────────────────────┘
+│  planner_agent.py → decides WHICH agent(s) below should run    │
+└────────────────────────────────────────────────────────────────┘
      │
      ▼
 ┌───────────┬───────────┬───────────┬─────────────┬───────────┬─────────────┬───────────┬───────────┐
@@ -33,16 +33,16 @@ Farmer asks (+ optional photo)
 │  Agent    │  Agent    │  Agent    │  Agent      │  Agent    │  Agent      │  Agent    │   Agent   │
 │    │      │    │      │    │      │   │    │    │    │      │             │           │     │     │
 │    ▼      │    ▼      │    ▼      │   ▼    ▼    │    ▼      │      ▼      │     ▼     │     ▼     │
-│ Vector DB │ Weather   │ Market    │ Vector DB    │ Vector DB │  Vector DB  │ Vector DB │  Image    │
-│  tool     │ API tool  │ Price API │ + Gov PDF    │  tool     │    tool     │   tool    │  Model    │
-│           │           │  tool     │ Search tools │           │             │           │   tool    │
+│ Vector DB │ Weather   │ Market    │ Vector DB   │ Vector DB │  Vector DB  │ Vector DB │  Image    │
+│  tool     │ API tool  │ Price API │ + Gov PDF   │  tool     │    tool     │   tool    │  Model    │
+│           │           │  tool     │ Search tools│           │             │           │   tool    │
 └───────────┴───────────┴───────────┴─────────────┴───────────┴─────────────┴───────────┴───────────┘
      │ (each agent runs independently — one failing never stops the others)
      ▼
 ┌────────────────────── Report Agent ────────────────────────────┐
-│  report_agent.py → combines every agent's findings into ONE      │
-│                     consolidated, source-cited recommendation     │
-└──────────────────────────────────────────────────────────────┘
+│  report_agent.py → combines every agent's findings into ONE    │
+│                     consolidated, source-cited recommendation  │
+└────────────────────────────────────────────────────────────────┘
      │
      ▼
         Reliable farming recommendation
