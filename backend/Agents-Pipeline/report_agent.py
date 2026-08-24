@@ -37,7 +37,9 @@ class ReportAgent(BaseAgent):
         self.llm = llm or LLMClient()
 
     def run(self, request: AgentRequest) -> AgentResult:
-        agent_results: List[AgentResult] = (request.context or {}).get("agent_results", [])
+        context = request.context or {}
+        agent_results: List[AgentResult] = context.get("agent_results", [])
+        plan = context.get("plan")  # PlanDecision from planner_agent.py, if available (Phase 8)
 
         if not agent_results:
             return AgentResult(
@@ -47,8 +49,10 @@ class ReportAgent(BaseAgent):
             )
 
         findings_block, combined_sources = self._build_findings_block(agent_results)
+        plan_block = self._build_plan_block(plan)
         user_prompt = (
             f"FARMER'S QUESTION: {request.query}\n\n"
+            f"{plan_block}"
             f"SPECIALIST FINDINGS:\n{findings_block}\n\n"
             f"Write the consolidated report now."
         )
@@ -71,6 +75,19 @@ class ReportAgent(BaseAgent):
             grounded=any_grounded,
             sources=combined_sources,
             data={"agents_consulted": [r.agent_name for r in agent_results]},
+        )
+
+    @staticmethod
+    def _build_plan_block(plan) -> str:
+        """Renders the Planner Agent's reasoning chain (Phase 8), if one
+        was passed through by the orchestrator, as light framing context
+        for the LLM — NOT something the report should just repeat back."""
+        if plan is None or not getattr(plan, "steps", None):
+            return ""
+        lines = [f"- Need {s.need} (via {s.agent.replace('_', ' ').title()})" for s in plan.steps]
+        return (
+            "PLANNER'S REASONING (why these specialists were consulted, for your context "
+            "only — do not just repeat this list back to the farmer):\n" + "\n".join(lines) + "\n\n"
         )
 
     @staticmethod
