@@ -1,5 +1,24 @@
 """
 report_agent.py
+=================
+Single responsibility: take everything the OTHER agents produced for
+one farmer question and turn it into one coherent, farmer-facing
+report — the last box in the Phase 7 pipeline diagram.
+
+    [Disease] [Weather] [Market] [Government]
+    [Soil]    [Fertilizer] [Pest]      ...whichever ran...
+                    |
+                    v
+              Report Agent
+                    |
+                    v
+        One consolidated recommendation,
+        with a combined, re-numbered source list
+
+This agent never talks to the knowledge base or an external API
+itself — it only reasons over the AgentResults (and, since Phase 8,
+the Planner's PlanDecision) it's handed, which is what makes it safe
+to always run last regardless of which specialized agents fired.
 """
 
 import logging
