@@ -1,5 +1,20 @@
 """
 agent_config.py
+================
+Step 0 — Configuration for the Agents-Pipeline (Phase 7).
+
+Deliberately named `agent_config.py`, NOT `config.py` — see the big
+comment in `rag_bridge.py` for why: RAG-Pipeline's modules already
+have their own bare `import config`, and giving this file the same
+bare name would risk one pipeline's settings silently shadowing the
+other's depending on import order.
+
+LLM / embedding / vector-database settings are NOT duplicated here —
+every knowledge-backed agent reuses Phase 6's settings via
+`rag_bridge.rag_config`. This file only holds settings that are new
+in Phase 7: which agents exist, external tool endpoints (weather),
+local structured data (market prices), and this pipeline's own API
+server.
 """
 
 import os
@@ -11,7 +26,9 @@ try:
 except ImportError:
     pass
 
+# ---------------------------------------------------------------------------
 # 1. FOLDER PATHS
+# ---------------------------------------------------------------------------
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
@@ -21,7 +38,9 @@ LOGS_DIR = OUTPUT_DIR / "logs"
 for folder in [DATA_DIR, OUTPUT_DIR, LOGS_DIR]:
     folder.mkdir(parents=True, exist_ok=True)
 
+# ---------------------------------------------------------------------------
 # 2. PLANNER AGENT SETTINGS
+# ---------------------------------------------------------------------------
 
 # "keyword"  -> fast, free, deterministic keyword/regex routing (default).
 # "llm"       -> ask the configured LLM (see rag_bridge.rag_config) to
@@ -40,7 +59,9 @@ PLANNER_FALLBACK_AGENT = "general"
 # LLM order) actually run — keeps latency and LLM spend bounded.
 PLANNER_MAX_AGENTS_PER_REQUEST = int(os.getenv("PLANNER_MAX_AGENTS_PER_REQUEST", "4"))
 
+# ---------------------------------------------------------------------------
 # 2b. PHASE 10 — MULTI-AGENT COLLABORATION SETTINGS
+# ---------------------------------------------------------------------------
 #     Planner -> Disease Agent -> Weather Agent -> Soil Agent
 #             -> Fertilizer Agent -> Planner -> Final Answer
 #
@@ -61,7 +82,9 @@ PLANNER_MAX_AGENTS_PER_REQUEST = int(os.getenv("PLANNER_MAX_AGENTS_PER_REQUEST",
 #   or when comparing against the Phase 7/8/9 baseline.
 COLLABORATION_MODE = os.getenv("COLLABORATION_MODE", "sequential").strip().lower()
 
+# ---------------------------------------------------------------------------
 # 3. WEATHER AGENT SETTINGS
+# ---------------------------------------------------------------------------
 # Open-Meteo (https://open-meteo.com) is used because it's free, requires
 # NO API key, and has generous rate limits for a student/portfolio
 # project — matching the "Weather API" line in the tech-stack table
@@ -84,7 +107,9 @@ WEATHER_DEFAULT_LONGITUDE = float(os.getenv("WEATHER_DEFAULT_LONGITUDE", "79.861
 WEATHER_FORECAST_DAYS = int(os.getenv("WEATHER_FORECAST_DAYS", "3"))
 WEATHER_REQUEST_TIMEOUT_SECONDS = int(os.getenv("WEATHER_REQUEST_TIMEOUT_SECONDS", "15"))
 
+# ---------------------------------------------------------------------------
 # 4. MARKET AGENT SETTINGS
+# ---------------------------------------------------------------------------
 # No free, universal, no-key crop-price API exists for every region, so
 # the Market Agent checks a small local dataset FIRST (fast, exact,
 # offline-friendly) and only falls back to a knowledge-base + LLM
@@ -93,11 +118,15 @@ WEATHER_REQUEST_TIMEOUT_SECONDS = int(os.getenv("WEATHER_REQUEST_TIMEOUT_SECONDS
 MARKET_PRICE_DATA_PATH = DATA_DIR / "market_prices_sample.json"
 MARKET_PRICE_CURRENCY = os.getenv("MARKET_PRICE_CURRENCY", "LKR")
 
+# ---------------------------------------------------------------------------
 # 5. REPORT AGENT SETTINGS
+# ---------------------------------------------------------------------------
 
 REPORT_MAX_TOKENS = int(os.getenv("REPORT_MAX_TOKENS", "900"))
 
+# ---------------------------------------------------------------------------
 # 5b. GOVERNMENT PDF SEARCH TOOL SETTINGS (Phase 9)
+# ---------------------------------------------------------------------------
 # Points the tool at Document-Processing-Pipeline's OWN output folders
 # (Phase 2/3) rather than duplicating them — this tool searches the exact
 # plain-text files that pipeline already exported, independent of whether
@@ -118,14 +147,35 @@ GOVERNMENT_DOCUMENT_TYPE_LABELS = {"Government Scheme"}
 GOVERNMENT_PDF_SEARCH_TOP_K = int(os.getenv("GOVERNMENT_PDF_SEARCH_TOP_K", "3"))
 GOVERNMENT_PDF_SEARCH_SNIPPET_CHARS = int(os.getenv("GOVERNMENT_PDF_SEARCH_SNIPPET_CHARS", "600"))
 
+# ---------------------------------------------------------------------------
 # 5c. IMAGE AGENT / IMAGE MODEL TOOL SETTINGS (Phase 9)
+# ---------------------------------------------------------------------------
 # Vision-MODEL settings (which model/provider) live in
 # ../RAG-Pipeline/config.py alongside the rest of the LLM provider config
 # (OLLAMA_VISION_MODEL / GROQ_VISION_MODEL / OPENAI_COMPATIBLE_VISION_MODEL)
 # — this pipeline only owns the upload-side limits.
 IMAGE_MAX_BYTES = int(os.getenv("IMAGE_MAX_BYTES", str(8 * 1024 * 1024)))  # 8 MB
 
+# ---------------------------------------------------------------------------
+# 5d. PHASE 11 — CONVERSATION MEMORY SETTINGS
+# ---------------------------------------------------------------------------
+# See conversation_memory.py for the full picture. Memory is keyed by a
+# caller-supplied `session_id` (one per farmer/device/login) and stored
+# as one small JSON file per session — no database server needed for a
+# demo/portfolio project, and easy to inspect by hand.
+MEMORY_ENABLED = os.getenv("MEMORY_ENABLED", "true").strip().lower() not in {"0", "false", "no"}
+MEMORY_DIR = OUTPUT_DIR / "memory"
+MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+
+# How many past turns / weather checks to keep per session. This is a
+# rolling "don't repeat yourself" window, not a full transcript archive
+# — old entries are simply dropped once the cap is reached.
+MEMORY_MAX_TURNS = int(os.getenv("MEMORY_MAX_TURNS", "10"))
+MEMORY_MAX_WEATHER_HISTORY = int(os.getenv("MEMORY_MAX_WEATHER_HISTORY", "5"))
+
+# ---------------------------------------------------------------------------
 # 6. API SERVER SETTINGS (api.py)
+# ---------------------------------------------------------------------------
 # Runs on its own port, separate from RAG-Pipeline/api.py, so both
 # Phase 6 (plain RAG) and Phase 7 (agentic) endpoints can be run side
 # by side during development/demos.
@@ -134,6 +184,8 @@ API_HOST = os.getenv("AGENTS_API_HOST", "0.0.0.0")
 API_PORT = int(os.getenv("AGENTS_API_PORT", "8001"))
 API_CORS_ORIGINS = [o.strip() for o in os.getenv("AGENTS_API_CORS_ORIGINS", "*").split(",")]
 
+# ---------------------------------------------------------------------------
 # 7. LOGGING
+# ---------------------------------------------------------------------------
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")

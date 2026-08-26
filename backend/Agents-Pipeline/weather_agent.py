@@ -64,7 +64,17 @@ class WeatherAgent(BaseAgent):
         # (e.g. Disease Agent's diagnosis), if any; "" in parallel mode
         # or when this is the first agent to run.
         prior_findings_block = format_prior_findings(request.context.get("prior_findings", []))
-        details = self._summarize_for_farming(question, result.text, prior_findings_block) or result.text
+        # PHASE 11 — what's already known about this farmer from earlier
+        # turns (e.g. a recent disease finding that humid weather could
+        # aggravate), if a session_id was passed; "" otherwise. Note the
+        # location/lat-lon used above already came from memory too, via
+        # `context["location"]`/`context["latitude"]`/`context["longitude"]`
+        # — see agent_orchestrator.handle() and tools/weather_tool.py's
+        # `resolve_location()`; no change needed here for that part.
+        memory_block = request.context.get("memory_summary") or ""
+        details = self._summarize_for_farming(
+            question, result.text, prior_findings_block, memory_block
+        ) or result.text
 
         current = result.data["current"]
         location_label = result.data["location"]
@@ -78,7 +88,11 @@ class WeatherAgent(BaseAgent):
         )
 
     def _summarize_for_farming(
-        self, question: str, forecast_text: str, prior_findings_block: str = ""
+        self,
+        question: str,
+        forecast_text: str,
+        prior_findings_block: str = "",
+        memory_block: str = "",
     ) -> Optional[str]:
         """Best-effort: ask the LLM to translate raw numbers into farming
         guidance (spraying/irrigation/harvest timing). Falls back to the
@@ -89,17 +103,25 @@ class WeatherAgent(BaseAgent):
         carries what earlier agents in a sequential collaboration chain
         already found — e.g. a Disease Agent diagnosis — so the weather
         guidance can be specific ("humid conditions favor the fungal
-        spread the Disease Agent flagged") instead of generic."""
+        spread the Disease Agent flagged") instead of generic.
+
+        PHASE 11: `memory_block` (see conversation_memory.FarmerMemory.
+        to_prompt_block) carries what's already known about this farmer
+        from EARLIER turns/days, so e.g. a disease found last time can
+        still shape today's irrigation guidance even though no agent
+        re-diagnosed it just now."""
         system_prompt = (
             "You are AgriNova AI's Weather Agent. You are given a real, current weather "
             "forecast and a farmer's question. Explain in plain language what the forecast "
             "means for farming decisions relevant to their question (e.g. whether it's a good "
             "window to spray, irrigate, plant, or harvest). Base your reasoning only on the "
             "forecast numbers given — do not invent temperatures or rainfall figures. If "
-            "earlier specialist findings are provided, factor them into your guidance where "
-            "relevant. Keep it short and actionable."
+            "earlier specialist findings or facts already known about this farmer are "
+            "provided, factor them into your guidance where relevant. Keep it short and "
+            "actionable."
         )
         user_prompt = (
+            f"{memory_block}"
             f"{prior_findings_block}"
             f"FORECAST DATA:\n{forecast_text}\n\nFARMER'S QUESTION: {question}"
         )

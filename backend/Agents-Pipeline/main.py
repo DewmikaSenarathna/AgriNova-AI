@@ -1,7 +1,7 @@
 """
 main.py
 =======
-PHASE 7/10 — Agents Pipeline (interactive CLI)
+PHASE 7/10/11 — Agents Pipeline (interactive CLI)
 
 Run this to ask AgriNova AI questions through the full multi-agent
 pipeline (Planner -> specialists, collaborating in sequence -> Report
@@ -13,6 +13,18 @@ Agent) from the terminal:
 Phase 9 — attach a photo from the CLI with --image:
 
     python main.py "what's wrong with my tomato plant?" --image leaf.jpg
+
+Phase 11 — carry conversation memory across runs with --session:
+
+    python main.py "my tomato crop in Kurunegala has yellowing leaves" --session farmer-42
+    python main.py "should I irrigate today?" --session farmer-42
+    # ^ the second call already knows the crop and location from the first
+
+In interactive mode, a session ID is generated automatically (or pass
+one with --session to resume an earlier farmer's conversation from a
+previous run — memory is persisted to disk, see conversation_memory.py)
+so every question asked in one CLI run naturally shares memory, and
+`--reset-memory` clears it before starting.
 
 Prerequisites (in order):
     1. Document-Processing-Pipeline has processed at least one PDF.
@@ -27,6 +39,7 @@ Prerequisites (in order):
 import base64
 import logging
 import sys
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -46,6 +59,11 @@ def print_answer(result: OrchestratedAnswer):
     print(f"\n{'='*70}")
     print(f"PLANNER'S REASONING  (via {result.plan.method}, collaboration={result.collaboration_mode})")
     print("=" * 70)
+    if result.session_id and result.recalled_memory:
+        recalled_bits = ", ".join(f"{k}={v}" for k, v in result.recalled_memory.items())
+        print(f"[Phase 11 memory] Recalled for session '{result.session_id}': {recalled_bits}")
+    elif result.session_id:
+        print(f"[Phase 11 memory] Session '{result.session_id}' — nothing recalled yet (first turn).")
     if result.plan.steps:
         for i, step in enumerate(result.plan.steps, start=1):
             arrow = "" if i == len(result.plan.steps) else "\n   ↓"
@@ -80,11 +98,15 @@ def _load_image_base64(image_path: str) -> Optional[str]:
 
 
 def _parse_cli_args(argv):
-    """Very small parser: everything except a trailing `--image <path>`
-    pair is joined back into the question, so quoting the question isn't
-    required for the common case."""
+    """Very small parser: pulls a trailing `--image <path>`,
+    `--session <id>` and/or a bare `--reset-memory` flag out of argv;
+    everything else is joined back into the question, so quoting the
+    question isn't required for the common case."""
     image_path = None
+    session_id = None
+    reset_memory = False
     args = list(argv)
+
     if "--image" in args:
         idx = args.index("--image")
         if idx + 1 < len(args):
@@ -92,26 +114,69 @@ def _parse_cli_args(argv):
             del args[idx:idx + 2]
         else:
             del args[idx:idx + 1]
-    return " ".join(args).strip(), image_path
+
+    if "--session" in args:
+        idx = args.index("--session")
+        if idx + 1 < len(args):
+            session_id = args[idx + 1]
+            del args[idx:idx + 2]
+        else:
+            del args[idx:idx + 1]
+
+    if "--reset-memory" in args:
+        args.remove("--reset-memory")
+        reset_memory = True
+
+    return " ".join(args).strip(), image_path, session_id, reset_memory
 
 
-def run_once(question: str, image_path: Optional[str] = None):
+def run_once(
+    question: str,
+    image_path: Optional[str] = None,
+    session_id: Optional[str] = None,
+    reset_memory: bool = False,
+):
     orchestrator = AgentOrchestrator()
+    if reset_memory and session_id:
+        orchestrator.memory_store.delete(session_id)
+        print(f"[Phase 11 memory] Cleared memory for session '{session_id}'.")
+
     context = {}
     if image_path:
         image_base64 = _load_image_base64(image_path)
         if image_base64:
             context["image_base64"] = image_base64
-    result = orchestrator.handle(question, context=context)
+    result = orchestrator.handle(question, context=context, session_id=session_id)
     print_answer(result)
 
 
-def run_interactive():
-    print(f"\n{'='*70}\nAgriNova AI — Agents Pipeline (Phase 10 — Multi-Agent Collaboration)\n{'='*70}")
+def run_interactive(session_id: Optional[str] = None, reset_memory: bool = False):
+    print(f"\n{'='*70}\nAgriNova AI — Agents Pipeline "
+          f"(Phase 10 — Multi-Agent Collaboration, Phase 11 — Conversation Memory)\n{'='*70}")
     print(f"Planner mode: {agent_config.PLANNER_MODE} | Collaboration mode: {agent_config.COLLABORATION_MODE}")
-    print("Type a farming question, or 'exit' to quit.\n")
 
     orchestrator = AgentOrchestrator()
+
+    # PHASE 11 — every question asked in this run shares one session_id
+    # so memory naturally carries across turns (the "Day 1 / Day 2"
+    # scenario, just within one CLI session instead of two). Pass
+    # --session to instead RESUME a farmer's conversation from an
+    # earlier run (memory is persisted to disk between runs).
+    if not session_id:
+        session_id = f"cli-{uuid.uuid4().hex[:8]}"
+        print(f"Session: {session_id} (new — resume it later with --session {session_id})")
+    else:
+        existing = orchestrator.memory_store.get(session_id)
+        if reset_memory:
+            orchestrator.memory_store.delete(session_id)
+            print(f"Session: {session_id} (memory cleared)")
+        elif not existing.is_empty():
+            print(f"Session: {session_id} (resumed — remembers: {existing.known_context()})")
+        else:
+            print(f"Session: {session_id} (no memory yet)")
+
+    print("Type a farming question, or 'exit' to quit.\n")
+
     while True:
         try:
             question = input("Farmer> ").strip()
@@ -125,14 +190,19 @@ def run_interactive():
             print("Goodbye.")
             break
 
-        result = orchestrator.handle(question)
+        result = orchestrator.handle(question, session_id=session_id)
         print_answer(result)
 
 
 if __name__ == "__main__":
     configure_logging()
-    cli_question = " ".join(sys.argv[1:]).strip()
+    cli_question, cli_image_path, cli_session_id, cli_reset_memory = _parse_cli_args(sys.argv[1:])
     if cli_question:
-        run_once(cli_question)
+        run_once(
+            cli_question,
+            image_path=cli_image_path,
+            session_id=cli_session_id,
+            reset_memory=cli_reset_memory,
+        )
     else:
-        run_interactive()
+        run_interactive(session_id=cli_session_id, reset_memory=cli_reset_memory)
