@@ -36,6 +36,15 @@ carries every earlier agent's result in this chain. `run()` renders it
 retrieved SOURCES, so e.g. the Fertilizer Agent genuinely sees what the
 Soil Agent and Weather Agent already found for this same question,
 rather than answering blind to its teammates.
+
+PHASE 11 note: when the caller passed a `session_id`,
+`request.context["memory_summary"]` (built by
+`conversation_memory.FarmerMemory.to_prompt_block`) carries what's
+already known about this farmer from EARLIER turns — crop, location,
+previous disease/fertilizer findings, recent weather. `run()` renders
+this ahead of `prior_findings` so the LLM can say "since your tomato
+crop had early blight recently..." instead of asking the farmer to
+repeat themselves, or answering as if this were a first-ever question.
 """
 
 import logging
@@ -140,8 +149,12 @@ class KnowledgeAgent(BaseAgent):
         # reasons WITH its teammates instead of in isolation. Empty in
         # parallel mode or for the first agent in a chain.
         prior_findings_block = format_prior_findings(request.context.get("prior_findings", []))
+        # PHASE 11 — "" for a brand-new session, or if the caller never
+        # passed a session_id at all (see agent_orchestrator.handle).
+        memory_block = request.context.get("memory_summary") or ""
 
         user_prompt = (
+            f"{memory_block}"
             f"{prior_findings_block}"
             f"SOURCES:\n{context_block}\n\n---\n\n"
             f"FARMER'S QUESTION ({self.domain_label}): {question}\n\n"
@@ -154,7 +167,9 @@ class KnowledgeAgent(BaseAgent):
         user_prompt += (
             "Answer using only the SOURCES above, citing them as [Source N]. "
             "If earlier specialist findings were given above, factor them into your "
-            "answer where relevant instead of ignoring them."
+            "answer where relevant instead of ignoring them. If facts already known about "
+            "this farmer were given above, use them instead of asking the farmer to repeat "
+            "themselves."
         )
 
         try:

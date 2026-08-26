@@ -44,7 +44,10 @@ so the farmer can still tell which finding came from where.
 papering over it.
 5. Do not invent any fact, figure, price, dosage or date that isn't present in the specialists' \
 findings below.
-6. End with a short "Recommended next steps" list.
+6. If facts already known about this farmer from earlier conversation turns are given below, \
+use them naturally (e.g. "since your tomato crop had early blight recently...") instead of \
+ignoring them or asking the farmer to repeat themselves.
+7. End with a short "Recommended next steps" list.
 """
 
 
@@ -69,7 +72,12 @@ class ReportAgent(BaseAgent):
 
         findings_block, combined_sources = self._build_findings_block(agent_results)
         plan_block = self._build_plan_block(plan)
+        # PHASE 11 — what's already known about this farmer from earlier
+        # turns, if a session_id was passed; "" otherwise (byte-identical
+        # to Phase 10 behaviour in that case).
+        memory_block = context.get("memory_summary") or ""
         user_prompt = (
+            f"{memory_block}"
             f"FARMER'S QUESTION: {request.query}\n\n"
             f"{plan_block}"
             f"SPECIALIST FINDINGS:\n{findings_block}\n\n"
