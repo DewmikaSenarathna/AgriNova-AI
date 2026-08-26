@@ -1,7 +1,7 @@
 """
 agent_orchestrator.py
 =======================
-PHASE 7/10 — The Agents Pipeline (full orchestration)
+PHASE 7/10/11 — The Agents Pipeline (full orchestration)
 
 PHASE 10 — MULTI-AGENT COLLABORATION (the default mode):
 
@@ -48,6 +48,43 @@ This is the Phase 7 counterpart to `RAG-Pipeline/rag_pipeline.py`:
 the single module the rest of the app should import. `main.py` (CLI)
 and `api.py` (FastAPI) both just call
 `AgentOrchestrator().handle(question)`.
+
+PHASE 11 — CONVERSATION MEMORY (opt-in via `session_id`):
+
+    Farmer (Day 1)                    Farmer (Day 2, same session_id)
+        |                                       |
+        v                                       v
+    handle(q1, session_id="farmer-42")     handle(q2, session_id="farmer-42")
+        |                                       |
+        v                                       v
+    1. load FarmerMemory("farmer-42")      1. load FarmerMemory("farmer-42")
+       (empty — first turn)                    -> already knows crop, location,
+                                                    last disease/fertilizer found,
+                                                    recent weather, from Day 1
+        |                                       |
+        v                                       v
+    2. merge memory's known facts into     2. same — so e.g. the Weather Agent
+       `context` (crop/location/lat/lon/       already has a location to check
+       field), render a memory prompt          without the farmer repeating it
+       block for agents to read
+        |                                       |
+        v                                       v
+    3. run the plan as normal (Planner ->  3. same
+       specialists -> Report Agent)
+        |                                       |
+        v                                       v
+    4. record_turn(): extract whatever     4. same — Day 2's new findings get
+       NEW facts this turn revealed and       folded in on top of Day 1's, so
+       persist them for NEXT time              Day 3 knows even more
+        |                                       |
+        v                                       v
+    OrchestratedAnswer(..., session_id,    OrchestratedAnswer(..., session_id,
+                       recalled_memory={})                     recalled_memory={...})
+
+`session_id` is entirely optional — omitting it (the Phase 7-10
+default) skips memory load/save altogether, so existing callers that
+never pass one behave exactly as before. See conversation_memory.py
+for the storage/extraction details.
 """
 
 import logging
@@ -56,6 +93,7 @@ from typing import Dict, List, Optional
 
 import agent_config
 from agent_types import AgentRequest, AgentResult, PlanDecision, PlanStep
+from conversation_memory import ConversationMemoryStore, FarmerMemory
 from planner_agent import PlannerAgent
 from base_agent import BaseAgent
 from disease_agent import DiseaseAgent
@@ -84,6 +122,13 @@ class OrchestratedAnswer:
     # agents' findings) or "parallel" (Phase 7 fan-out). Surfaced so the
     # frontend/CLI can show which mode actually produced this answer.
     collaboration_mode: str = "sequential"
+    # PHASE 11 — which conversation this answer belongs to (None if the
+    # caller didn't opt into memory for this request), and exactly what
+    # facts were recalled from EARLIER turns and used for this one — so
+    # the frontend/CLI can show the farmer what the AI already knew
+    # instead of that being invisible.
+    session_id: Optional[str] = None
+    recalled_memory: Dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -92,6 +137,8 @@ class OrchestratedAnswer:
             "agent_results": [r.to_dict() for r in self.agent_results],
             "final_report": self.final_report.to_dict(),
             "collaboration_mode": self.collaboration_mode,
+            "session_id": self.session_id,
+            "recalled_memory": self.recalled_memory,
         }
 
 
@@ -125,9 +172,36 @@ class AgentOrchestrator:
         }
         self.report_agent = ReportAgent(llm=shared_llm)
 
-    def handle(self, question: str, context: Optional[Dict] = None) -> OrchestratedAnswer:
+        # PHASE 11 — one store shared across every request; cheap to
+        # construct (just resolves a folder path), unlike the LLM/vector
+        # DB connections above, so it isn't worth injecting separately.
+        self.memory_store = ConversationMemoryStore()
+
+    def handle(
+        self,
+        question: str,
+        context: Optional[Dict] = None,
+        session_id: Optional[str] = None,
+    ) -> OrchestratedAnswer:
         question = (question or "").strip()
-        context = context or {}
+        explicit_context = dict(context or {})
+
+        # PHASE 11 — Step 0: recall what we already know about this
+        # farmer's conversation (no-op, and no memory read/write at all,
+        # if the caller didn't pass a session_id — see module docstring).
+        memory: Optional[FarmerMemory] = None
+        recalled: Dict = {}
+        if session_id and agent_config.MEMORY_ENABLED:
+            memory = self.memory_store.get(session_id)
+            recalled = memory.known_context()
+
+        # Explicit context for THIS question always wins over older
+        # memory (e.g. a farmer switching crops mid-conversation, or an
+        # explicit location, should not get stuck on stale facts) — see
+        # FarmerMemory.known_context()'s docstring.
+        context = {**recalled, **explicit_context}
+        if memory is not None:
+            context["memory_summary"] = memory.to_prompt_block()
 
         if not question:
             empty_report = AgentResult(
@@ -141,6 +215,8 @@ class AgentOrchestrator:
                 agent_results=[],
                 final_report=empty_report,
                 collaboration_mode=agent_config.COLLABORATION_MODE,
+                session_id=session_id,
+                recalled_memory=recalled,
             )
 
         # Step 1 — Planner Agent decides WHO handles this question, and in
@@ -186,12 +262,27 @@ class AgentOrchestrator:
         )
         final_report = self.report_agent.execute(report_request)
 
+        # PHASE 11 — Step 4: fold whatever NEW facts this turn revealed
+        # (explicit context hints, crop mentioned in the question text,
+        # and grounded specialist findings) into this session's memory,
+        # so the FARMER doesn't have to repeat any of it next time.
+        if memory is not None:
+            memory = self.memory_store.record_turn(
+                session_id=session_id,
+                question=question,
+                context_hints=explicit_context,
+                agent_results=agent_results,
+                final_report=final_report,
+            )
+
         return OrchestratedAnswer(
             question=question,
             plan=plan,
             agent_results=agent_results,
             final_report=final_report,
             collaboration_mode=agent_config.COLLABORATION_MODE,
+            session_id=session_id,
+            recalled_memory=recalled,
         )
 
     def _run_sequential_collaboration(
