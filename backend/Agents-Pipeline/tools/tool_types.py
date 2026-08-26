@@ -1,5 +1,19 @@
 """
 tool_types.py
+=============
+PHASE 9 — the shared "envelope" every tool speaks, so every agent can
+call ANY tool through the same interface, exactly the way `AgentRequest`
+/ `AgentResult` (agent_types.py) let the orchestrator treat every agent
+identically without knowing how it works internally.
+
+    Agent  ->  tool.run(**kwargs)  ->  ToolResult  ->  Agent decides what
+                                                        to do with it
+
+A tool is a thin wrapper around ONE external capability an agent needs
+(an HTTP API, a local dataset, a full-text search, a vision model, a
+vector database) — never an LLM call, and never a full agent. That
+separation keeps tools independently testable/swappable and keeps
+agents focused on *reasoning*, not on HTTP/plumbing details.
 """
 
 from dataclasses import dataclass, field
