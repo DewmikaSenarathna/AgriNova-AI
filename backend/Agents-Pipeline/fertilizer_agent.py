@@ -1,5 +1,8 @@
 """
 fertilizer_agent.py
+====================
+Single responsibility: fertilizer type, dosage and application-timing
+guidance, grounded in the shared knowledge base (see knowledge_agent.py).
 """
 
 from knowledge_agent import KnowledgeAgent

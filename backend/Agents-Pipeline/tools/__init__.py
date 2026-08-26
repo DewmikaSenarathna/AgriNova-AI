@@ -1,5 +1,28 @@
 """
 tools
+=====
+PHASE 9 — Connect External Tools.
+
+Every external capability an agent can reach for lives in this
+package, behind the shared `BaseTool` contract (see base_tool.py):
+
+    Agent            Tool                    External capability
+    --------------   ---------------------   -------------------------------
+    Weather Agent    WeatherTool             Open-Meteo Weather API
+    Market Agent     MarketPriceTool         Market price dataset (swap for
+                                              a live pricing API)
+    Government Agent GovernmentPDFSearchTool Full-text search over official
+                                              PDFs (+ VectorDBTool below)
+    Disease/Pest/     VectorDBTool           Shared ChromaDB vector database
+    Fertilizer/Soil
+    Government Agent
+    Image Agent      ImageModelTool          Vision-capable LLM (crop photos)
+
+`TOOL_REGISTRY` below is a lightweight, import-light catalogue (name ->
+ToolSpec) for anything that wants to list "what tools exist" — e.g. the
+`/api/tools` endpoint in api.py — without constructing every tool
+(some of which open network connections or load embedding models on
+init) just to read its description.
 """
 
 from tools.base_tool import BaseTool

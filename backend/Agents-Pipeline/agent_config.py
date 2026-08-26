@@ -40,6 +40,27 @@ PLANNER_FALLBACK_AGENT = "general"
 # LLM order) actually run — keeps latency and LLM spend bounded.
 PLANNER_MAX_AGENTS_PER_REQUEST = int(os.getenv("PLANNER_MAX_AGENTS_PER_REQUEST", "4"))
 
+# 2b. PHASE 10 — MULTI-AGENT COLLABORATION SETTINGS
+#     Planner -> Disease Agent -> Weather Agent -> Soil Agent
+#             -> Fertilizer Agent -> Planner -> Final Answer
+#
+# "sequential" (default) -> the Planner's reasoning-chain agents run ONE
+#   AT A TIME, in chain order, and EVERY agent after the first is handed
+#   every earlier agent's findings (see AgentRequest.context
+#   ["prior_findings"], populated in agent_orchestrator.py and consumed
+#   by knowledge_agent.py / weather_agent.py). This is what makes it
+#   real collaboration rather than seven agents independently answering
+#   the same question: the Weather Agent's forecast can shape the Soil
+#   Agent's moisture read, which can shape the Fertilizer Agent's
+#   timing advice — each agent builds on what came before, exactly like
+#   the Phase 10 architecture diagram.
+# "parallel" -> Phase 7's original behaviour: every selected agent runs
+#   independently off the same base context (no cross-agent visibility
+#   except the Phase 9 image description). Lower latency, no chain
+#   dependency — kept as an option for simple, single-domain questions
+#   or when comparing against the Phase 7/8/9 baseline.
+COLLABORATION_MODE = os.getenv("COLLABORATION_MODE", "sequential").strip().lower()
+
 # 3. WEATHER AGENT SETTINGS
 # Open-Meteo (https://open-meteo.com) is used because it's free, requires
 # NO API key, and has generous rate limits for a student/portfolio
@@ -75,6 +96,34 @@ MARKET_PRICE_CURRENCY = os.getenv("MARKET_PRICE_CURRENCY", "LKR")
 # 5. REPORT AGENT SETTINGS
 
 REPORT_MAX_TOKENS = int(os.getenv("REPORT_MAX_TOKENS", "900"))
+
+# 5b. GOVERNMENT PDF SEARCH TOOL SETTINGS (Phase 9)
+# Points the tool at Document-Processing-Pipeline's OWN output folders
+# (Phase 2/3) rather than duplicating them — this tool searches the exact
+# plain-text files that pipeline already exported, independent of whether
+# the vector database has been (re)built yet.
+_DOC_PROCESSING_OUTPUT_DIR = BASE_DIR.parent / "Document-Processing-Pipeline" / "output"
+DOCUMENT_CLEAN_TEXT_DIR = Path(
+    os.getenv("DOCUMENT_CLEAN_TEXT_DIR", str(_DOC_PROCESSING_OUTPUT_DIR / "clean_text"))
+)
+DOCUMENT_METADATA_DIR = Path(
+    os.getenv("DOCUMENT_METADATA_DIR", str(_DOC_PROCESSING_OUTPUT_DIR / "metadata"))
+)
+
+# Must match the labels Document-Processing-Pipeline/metadata.py's
+# DOCUMENT_TYPE_KEYWORDS assigns to government/scheme/subsidy/gazette/
+# ministry PDFs (currently all map to the single "Government Scheme" type).
+GOVERNMENT_DOCUMENT_TYPE_LABELS = {"Government Scheme"}
+
+GOVERNMENT_PDF_SEARCH_TOP_K = int(os.getenv("GOVERNMENT_PDF_SEARCH_TOP_K", "3"))
+GOVERNMENT_PDF_SEARCH_SNIPPET_CHARS = int(os.getenv("GOVERNMENT_PDF_SEARCH_SNIPPET_CHARS", "600"))
+
+# 5c. IMAGE AGENT / IMAGE MODEL TOOL SETTINGS (Phase 9)
+# Vision-MODEL settings (which model/provider) live in
+# ../RAG-Pipeline/config.py alongside the rest of the LLM provider config
+# (OLLAMA_VISION_MODEL / GROQ_VISION_MODEL / OPENAI_COMPATIBLE_VISION_MODEL)
+# — this pipeline only owns the upload-side limits.
+IMAGE_MAX_BYTES = int(os.getenv("IMAGE_MAX_BYTES", str(8 * 1024 * 1024)))  # 8 MB
 
 # 6. API SERVER SETTINGS (api.py)
 # Runs on its own port, separate from RAG-Pipeline/api.py, so both

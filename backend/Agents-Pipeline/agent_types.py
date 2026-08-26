@@ -1,5 +1,19 @@
 """
 agent_types.py
+==============
+The shared "envelope" every agent speaks, so the Planner Agent and the
+Report Agent can treat all eight agents identically without knowing
+anything about how each one works internally.
+
+    AgentRequest   ->  BaseAgent.run()  ->  AgentResult
+
+Every agent in this pipeline (disease, weather, market, government,
+soil, fertilizer, pest, report) takes an AgentRequest and returns an
+AgentResult — that single contract is what makes them pluggable.
+
+Phase 8 adds `PlanStep`: the Planner Agent no longer just names which
+agents to run, it exposes the reasoning CHAIN behind that choice (see
+planner_agent.py's module docstring for the full picture).
 """
 
 from dataclasses import dataclass, field
@@ -62,6 +76,40 @@ class AgentResult:
             "data": self.data,
             "error": self.error,
         }
+
+
+def format_prior_findings(prior_findings: List[Dict[str, Any]]) -> str:
+    """
+    PHASE 10 — turns the accumulated findings from EARLIER agents in a
+    sequential collaboration chain into a short prompt block, so a
+    later agent (e.g. Fertilizer Agent) can genuinely build on what an
+    earlier one already found (e.g. the Soil Agent's soil-moisture
+    finding, or the Disease Agent's diagnosis) instead of answering the
+    farmer's question in isolation, blind to what its teammates just
+    said.
+
+    `prior_findings` is a list of small dicts — see
+    `agent_orchestrator.py`'s `_run_sequential_collaboration` for how
+    it's built — each with `agent_name`, `summary`, `details`,
+    `grounded`. Returns "" when nothing has run yet (the first agent in
+    a chain, or `agent_config.COLLABORATION_MODE == "parallel"`), so
+    every agent's prompt stays unchanged from Phase 7/8/9 in that case.
+    """
+    if not prior_findings:
+        return ""
+
+    lines = [
+        "FINDINGS FROM EARLIER SPECIALISTS IN THIS COLLABORATION (from the "
+        "same farmer question, already investigated by teammates before you — "
+        "build on these, don't just repeat them verbatim, and say so plainly "
+        "if something here conflicts with what you find):"
+    ]
+    for finding in prior_findings:
+        label = str(finding.get("agent_name", "agent")).replace("_", " ").title()
+        grounded_tag = "grounded" if finding.get("grounded") else "not grounded"
+        text = finding.get("details") or finding.get("summary") or "(no findings)"
+        lines.append(f"- [{label}, {grounded_tag}] {text}")
+    return "\n".join(lines) + "\n\n"
 
 
 @dataclass

@@ -1,4 +1,4 @@
-# Agents-Pipeline (Phase 7 + Phase 8 + Phase 9)
+# Agents-Pipeline (Phase 7 + Phase 8 + Phase 9 + Phase 10)
 
 Turns the single-shot question-answering assistant from `RAG-Pipeline`
 (Phase 6) into **Agentic AI**: instead of one generalist retriever, a
@@ -19,34 +19,59 @@ dataset, a full-text search, a vector database, a vision model) behind
 one shared interface — see [Connect External Tools](#connect-external-tools-phase-9)
 below.
 
+Phase 10 is **Multi-Agent Collaboration** — the heart of Agentic AI:
+by default, the agents the Planner selects no longer run in isolation.
+They run ONE AT A TIME, in the Planner's chain order, and every agent
+is handed every EARLIER agent's findings so it can genuinely build on
+them — see [Multi-Agent Collaboration](#multi-agent-collaboration-phase-10)
+below.
+
 ```
 Farmer asks (+ optional photo)
      │
      ▼
 ┌────────────────────── Planner Agent ───────────────────────────┐
-│  planner_agent.py → decides WHICH agent(s) below should run      │
+│  planner_agent.py → decides WHICH agent(s) run, and in what ORDER│
 └──────────────────────────────────────────────────────────────┘
      │
+     ▼  (Phase 10 default: SEQUENTIAL — each agent below receives every
+     │   earlier agent's findings via request.context["prior_findings"])
      ▼
-┌───────────┬───────────┬───────────┬─────────────┬───────────┬─────────────┬───────────┬───────────┐
-│  Disease  │  Weather  │  Market   │ Government  │   Soil    │ Fertilizer  │   Pest    │   Image   │
-│  Agent    │  Agent    │  Agent    │  Agent      │  Agent    │  Agent      │  Agent    │   Agent   │
-│    │      │    │      │    │      │   │    │    │    │      │             │           │     │     │
-│    ▼      │    ▼      │    ▼      │   ▼    ▼    │    ▼      │      ▼      │     ▼     │     ▼     │
-│ Vector DB │ Weather   │ Market    │ Vector DB    │ Vector DB │  Vector DB  │ Vector DB │  Image    │
-│  tool     │ API tool  │ Price API │ + Gov PDF    │  tool     │    tool     │   tool    │  Model    │
-│           │           │  tool     │ Search tools │           │             │           │   tool    │
-└───────────┴───────────┴───────────┴─────────────┴───────────┴─────────────┴───────────┴───────────┘
-     │ (each agent runs independently — one failing never stops the others)
+┌───────────┐    ┌───────────┐    ┌───────────┐    ┌─────────────┐
+│  Disease  │───▶│  Weather  │───▶│   Soil    │───▶│ Fertilizer  │   ...and so on for
+│  Agent    │    │  Agent    │    │  Agent    │    │  Agent      │   whichever agents
+└───────────┘    └───────────┘    └───────────┘    └─────────────┘   the Planner picked
+     │                 │                │                  │        (Market, Government,
+     ▼                 ▼                ▼                  ▼         Pest, Image, ...)
+  Vector DB       Weather API       Vector DB           Vector DB
+    tool              tool            tool                 tool
+     │
+     │ (one agent failing never stops the chain — see base_agent.execute())
      ▼
 ┌────────────────────── Report Agent ────────────────────────────┐
-│  report_agent.py → combines every agent's findings into ONE      │
-│                     consolidated, source-cited recommendation     │
+│  report_agent.py → the Planner's closing step: combines every    │
+│                     agent's findings into ONE consolidated,       │
+│                     source-cited recommendation                    │
 └──────────────────────────────────────────────────────────────┘
      │
      ▼
-        Reliable farming recommendation
+        Reliable farming recommendation ("Final Answer")
 ```
+
+Example (the canonical Phase 10 scenario):
+
+> **Farmer asks:** "My tomato plants are turning yellow. Should I water them today?"
+>
+> **Chain:** Planner → Disease Agent → Weather Agent → Soil Agent →
+> Fertilizer Agent → Planner (Report Agent) → Final Answer
+>
+> Every agent contributes: Disease Agent checks whether yellowing
+> matches a known disease; Weather Agent checks whether recent/upcoming
+> rain already explains it (and whether watering today makes sense);
+> Soil Agent checks moisture/drainage (over- or under-watered soil also
+> yellows leaves); Fertilizer Agent checks whether it's actually a
+> nutrient deficiency. Each one sees what the agents before it already
+> found (see [Multi-Agent Collaboration](#multi-agent-collaboration-phase-10)).
 
 If the Planner can't confidently match a question to any specialist,
 it routes to the **General Agent** — the plain Phase 6 `RAGPipeline`
@@ -293,13 +318,114 @@ inline. `GET /api/tools` lists every registered tool and which
 agent(s) use it, the same way `GET /api/agents` already did for
 agents.
 
+## Multi-Agent Collaboration (Phase 10)
+
+Phases 7–9 ran every agent the Planner selected **independently** —
+each one only ever saw the farmer's raw question (plus, since Phase 9,
+an attached photo's description). That's fan-out, not collaboration:
+the Fertilizer Agent had no idea what the Soil Agent or Weather Agent
+had just found for the very same question.
+
+Phase 10 changes the default execution mode
+(`agent_config.COLLABORATION_MODE`, default `"sequential"`) so agents
+run **one at a time, in the Planner's chain order**, and every agent
+after the first is handed the accumulated findings of every agent that
+ran before it:
+
+```python
+# agent_orchestrator.py — AgentOrchestrator._run_sequential_collaboration()
+for agent_name in ordered_agent_names:
+    request_context = {**enriched_context, "prior_findings": list(prior_findings)}
+    result = self.agent_registry[agent_name].execute(AgentRequest(query=question, context=request_context))
+    agent_results.append(result)
+    prior_findings.append({
+        "agent_name": result.agent_name, "summary": result.summary,
+        "details": result.details, "grounded": result.grounded,
+    })
+```
+
+Every knowledge-backed agent (`knowledge_agent.py`, and therefore
+Disease/Pest/Fertilizer/Soil/Government/Market Agent) and the Weather
+Agent (`weather_agent.py`) read `request.context["prior_findings"]`
+via the shared `agent_types.format_prior_findings()` helper and fold
+it into their LLM prompt *ahead of* their own retrieved sources — so
+e.g. the Fertilizer Agent's prompt literally includes what the Soil
+Agent and Weather Agent already concluded, and is told to build on
+it rather than repeat or ignore it.
+
+**Chain order comes from the Planner, unchanged from Phase 8** — see
+`planner_agent.py`'s `_REASONING_CHAINS`. The canonical example:
+
+```
+"My tomato plants are turning yellow. Should I water them today?"
+
+Planner
+  │
+  ▼
+Disease Agent    → is this a known disease matching "yellowing"?
+  │  (finding passed forward)
+  ▼
+Weather Agent    → does recent/upcoming rain already explain this,
+  │                 and is today even a good day to water?
+  │  (both findings passed forward)
+  ▼
+Soil Agent       → is the soil itself waterlogged / poorly drained /
+  │                 actually dry — given what Disease + Weather found?
+  │  (all three findings passed forward)
+  ▼
+Fertilizer Agent → could this be a nutrient deficiency instead,
+  │                 given everything found so far?
+  ▼
+Planner (Report Agent) → combines all four into ONE final answer
+  │
+  ▼
+Final Answer
+```
+
+Run it and see the chain for yourself:
+
+```bash
+python main.py "My tomato plants are turning yellow. Should I water them today?"
+```
+
+**The Image Agent is a special case, unchanged from Phase 9:** its
+photo description still flows through `context["image_description"]`
+(read directly by `knowledge_agent.py`), not through
+`prior_findings` — it's raw visual evidence, not a specialist's
+conclusion, and every knowledge agent already knew how to use it.
+
+**One agent failing never breaks the chain.** `BaseAgent.execute()`
+(Phase 7) still turns any exception into an honest `AgentResult.error`
+— if, say, the Weather API is down, Soil/Fertilizer Agent still run
+next, they just won't have a weather finding to build on.
+
+**Parallel mode (Phase 7's original fan-out) is still available**,
+e.g. for lower latency on simple, single-domain questions where true
+collaboration isn't needed:
+
+```bash
+# .env or shell
+COLLABORATION_MODE=parallel
+```
+
+`GET /health` and every `/api/agents/ask` response report which mode
+actually produced the answer (`"collaboration_mode": "sequential" |
+"parallel"`), and the CLI's `PLANNER'S REASONING` header shows it too.
+
+Unit tests for this (no LLM / network required — uses in-memory fake
+agents) live in `tests/test_phase10_collaboration.py`:
+
+```bash
+python -m unittest tests.test_phase10_collaboration -v
+```
+
 ## Files
 
 | File | Responsibility |
 |---|---|
-| `agent_config.py` | Every Phase-7/8/9-specific setting (planner mode, weather/market/gov-search/image config, API port) |
+| `agent_config.py` | Every Phase-7/8/9/10-specific setting (planner mode, weather/market/gov-search/image config, `COLLABORATION_MODE`, API port) |
 | `rag_bridge.py` | Re-exports Phase 6's embedder/vector store/retriever/LLM client/RAG pipeline |
-| `agent_types.py` | Shared `AgentRequest` / `AgentResult` / `PlanDecision` / `PlanStep` dataclasses |
+| `agent_types.py` | Shared `AgentRequest` / `AgentResult` / `PlanDecision` / `PlanStep` dataclasses + Phase 10's `format_prior_findings()` |
 | `base_agent.py` | Abstract base class every agent implements; catches per-agent failures |
 | `tools/` | Phase 9 — `BaseTool` contract + Weather API / Market Price API / Government PDF Search / Vector Database / Image Model tools |
 | `knowledge_agent.py` | Shared retrieval (via `tools.vector_db_tool`) + grounded-generation logic for the RAG-backed agents |
