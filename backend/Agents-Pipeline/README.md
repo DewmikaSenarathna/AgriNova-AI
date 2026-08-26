@@ -31,28 +31,12 @@ Farmer asks (+ optional photo)
      │
      ▼
 ┌────────────────────── Planner Agent ───────────────────────────┐
-│  planner_agent.py → decides WHICH agent(s) run, and in what ORDER│
-└──────────────────────────────────────────────────────────────┘
+
      │
      ▼  (Phase 10 default: SEQUENTIAL — each agent below receives every
      │   earlier agent's findings via request.context["prior_findings"])
      ▼
-┌───────────┐    ┌───────────┐    ┌───────────┐    ┌─────────────┐
-│  Disease  │───▶│  Weather  │───▶│   Soil    │───▶│ Fertilizer  │   ...and so on for
-│  Agent    │    │  Agent    │    │  Agent    │    │  Agent      │   whichever agents
-└───────────┘    └───────────┘    └───────────┘    └─────────────┘   the Planner picked
-     │                 │                │                  │        (Market, Government,
-     ▼                 ▼                ▼                  ▼         Pest, Image, ...)
-  Vector DB       Weather API       Vector DB           Vector DB
-    tool              tool            tool                 tool
-     │
-     │ (one agent failing never stops the chain — see base_agent.execute())
-     ▼
-┌────────────────────── Report Agent ────────────────────────────┐
-│  report_agent.py → the Planner's closing step: combines every    │
-│                     agent's findings into ONE consolidated,       │
-│                     source-cited recommendation                    │
-└──────────────────────────────────────────────────────────────┘
+
      │
      ▼
         Reliable farming recommendation ("Final Answer")
