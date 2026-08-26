@@ -8,13 +8,5 @@
 # (sentence-transformers, chromadb, fastapi, uvicorn, pydantic,
 # python-dotenv and requests are therefore not re-listed here.)
 
-# Phase 9's tools/ package (Weather API, Market Price API, Government PDF
-# Search, Vector Database, Image Model) is built entirely on `requests`
-# and the standard library — no extra dependencies beyond what's already
-# listed here and in ../RAG-Pipeline/requirements.txt. The Image Agent's
-# vision model call reuses LLMClient.generate_vision() (same `requests`
-# based HTTP client as every other LLM call), so no image-processing
-# library (e.g. Pillow) is required either.
-
 # Weather Agent — calls the free Open-Meteo REST API over HTTPS.
 requests>=2.31.0

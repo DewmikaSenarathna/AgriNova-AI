@@ -1,21 +1,5 @@
 """
 vector_db_tool.py
-==================
-PHASE 9 — "Disease Agent (and every other knowledge agent) -> Vector
-Database" tool.
-
-`knowledge_agent.py` already retrieved chunks straight from
-`rag_bridge.Retriever` (Phase 6/7). This wrapper doesn't change WHAT
-happens — it's still the same shared Chroma-backed Retriever, built
-once in `agent_orchestrator.py` and reused by every knowledge agent —
-it just puts that capability behind the same `BaseTool` interface as
-every other Phase 9 tool, so:
-
-  - the whole "which external systems does this pipeline depend on"
-    picture is visible in one `tools/` folder,
-  - and Disease/Pest/Fertilizer/Soil/Government/Market agents call the
-    vector database the same way they call the Weather API, Market
-    Price API, or Government PDF Search tool.
 """
 
 import logging

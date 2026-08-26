@@ -1,8 +1,5 @@
 """
 pest_agent.py
-==============
-Single responsibility: pest identification & integrated pest-management
-guidance, grounded in the shared knowledge base (see knowledge_agent.py).
 """
 
 from knowledge_agent import KnowledgeAgent

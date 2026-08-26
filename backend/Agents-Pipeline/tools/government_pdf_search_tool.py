@@ -1,33 +1,5 @@
 """
 government_pdf_search_tool.py
-==============================
-PHASE 9 — "Government Agent -> Government PDF Search" tool.
-
-The Government Agent already gets grounded answers from the shared
-vector database (semantic search, same as every other KnowledgeAgent
-subclass — see vector_db_tool.py). This tool adds a SECOND, literal
-full-text search over the plain-text output that
-`Document-Processing-Pipeline` already wrote for every processed PDF
-(`output/clean_text/*.txt` + `output/metadata/*.json`), filtered to
-documents whose `document_type` looks official (see
-`Document-Processing-Pipeline/metadata.py`'s "Government Scheme"
-keywords: government/scheme/subsidy/gazette/ministry).
-
-Why have both:
-  - Semantic search (vector DB) is great at "what's this about" even
-    when the farmer's wording doesn't match the document's wording.
-  - A farmer asking about a specific scheme, form, or exact eligibility
-    clause often benefits from an exact keyword hit inside the ORIGINAL
-    document text too — chunking (Phase 4/5) can occasionally split a
-    clause away from the sentence that names the scheme. A plain-text
-    search over the untouched clean_text/*.txt catches that case, and
-    doesn't depend on the embedding model or ChromaDB being healthy at
-    all — it's a completely independent code path, so government
-    guidance stays available even if the vector database is down.
-
-This tool never invents anything: it returns exact snippets straight
-out of files a PDF the project ingested, with the source file name
-attached for a citation.
 """
 
 import json
@@ -58,7 +30,7 @@ class GovernmentPDFSearchTool(BaseTool):
         self.metadata_dir = agent_config.DOCUMENT_METADATA_DIR
         self.doc_type_labels = agent_config.GOVERNMENT_DOCUMENT_TYPE_LABELS
 
-    # -- Step A — Which processed documents look official? ----------------------
+    # -- Step A — Which processed documents look official? 
     def _list_government_documents(self) -> List[dict]:
         if not self.metadata_dir.exists():
             return []
@@ -73,7 +45,7 @@ class GovernmentPDFSearchTool(BaseTool):
                 docs.append(meta)
         return docs
 
-    # -- Step B — Keyword-search each candidate document's clean text -----------
+    # -- Step B — Keyword-search each candidate document's clean text 
     def run(self, query: str, top_k: int = None, snippet_chars: int = None) -> ToolResult:
         top_k = top_k or agent_config.GOVERNMENT_PDF_SEARCH_TOP_K
         snippet_chars = snippet_chars or agent_config.GOVERNMENT_PDF_SEARCH_SNIPPET_CHARS

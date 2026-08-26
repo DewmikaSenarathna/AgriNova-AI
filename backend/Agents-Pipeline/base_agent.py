@@ -1,11 +1,5 @@
 """
 base_agent.py
-=============
-The contract every specialized agent (Disease, Weather, Market,
-Government, Soil, Fertilizer, Pest, Report) implements — "single
-responsibility" per the Phase 7 brief means each subclass only needs
-to implement `run()`; routing, aggregation and error-boundaries are
-handled once, here and in `agent_orchestrator.py`.
 """
 
 import logging

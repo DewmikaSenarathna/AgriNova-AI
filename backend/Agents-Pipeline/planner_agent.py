@@ -1,73 +1,5 @@
 """
 planner_agent.py
-==================
-PHASE 8 — The Planner Agent: the pipeline's "manager".
-
-A farmer's question rarely maps to exactly one specialist in isolation.
-Asked "Should I apply fertilizer tomorrow?", a good agronomist doesn't
-just answer "use urea" — they think it through:
-
-    Need weather            (will rain wash the fertilizer away?)
-        |
-        v
-    Need fertilizer schedule (what type/dose/timing applies here?)
-        |
-        v
-    Need crop stage          (young plants need different handling)
-        |
-        v
-    Need rainfall             (specifically: is it dry long enough?)
-        |
-        v
-    Need recommendation        (combine all of the above)
-
-That chain — not just a flat "call these agents" list — is what the
-Planner now produces. Each link is a `PlanStep` (see agent_types.py):
-a need, the agent that supplies it, and why it's needed. The LAST step
-is always "Need recommendation" -> `report_agent`, made explicit so the
-reasoning chain reads the same way a human manager would explain it,
-even though `agent_orchestrator.py` runs the Report Agent separately
-(see there for why).
-
-    Farmer's question
-            |
-            v
-      Planner Agent  ---------------------------------------------+
-            |                                                      |
-            v                                                      |
-    agent_config.PLANNER_MODE == "keyword" (default)                |
-        -> deterministic keyword matching + a small table of         |
-           "this need implies that need too" dependency rules         |
-           (_REASONING_CHAINS below)                                   |
-                                                                     |
-    agent_config.PLANNER_MODE == "llm"                               |
-        -> one structured-JSON call asking the LLM for the whole      |
-           reasoning chain directly                                   |
-                                                                     |
-            |                                                      |
-            v                                                      |
-    PlanDecision(steps=[...], agents_to_run=[...], ...) <-----------+
-            |
-            v
-    agent_orchestrator.py runs each unique agent named in the chain,
-    in that order, then the Report Agent (see report_agent.py)
-
-The Planner NEVER runs a specialist agent itself — it only decides
-which ones should run, and in what reasoning order. That separation is
-what keeps this class small and lets each specialist stay
-independently testable.
-
-PHASE 10 note: the chain ORDER produced here now matters even more
-than it did in Phase 8. By default (`agent_config.COLLABORATION_MODE
-== "sequential"`), `agent_orchestrator.py` runs `agents_to_run` one at
-a time in exactly this order, handing each agent every earlier agent's
-findings — so the chain this file builds isn't just a human-readable
-explanation anymore, it's the actual collaboration order. See the
-`disease_agent` / `weather_agent` entries in `_REASONING_CHAINS` below
-for the canonical Phase 10 example: "My tomato plants are turning
-yellow. Should I water them today?" -> Disease Agent -> Weather Agent
--> Soil Agent -> Fertilizer Agent -> Planner (via Report Agent) ->
-Final Answer.
 """
 
 import json
@@ -86,7 +18,7 @@ logger = logging.getLogger(__name__)
 _KEYWORD_MAP: Dict[str, List[str]] = {
     "disease_agent": [
         "disease", "infect", "fungus", "fungal", "blight", "wilt", "rot", "spot",
-        "yellowing leaves", "turning yellow", "yellow", "mildew", "virus", "lesion",
+        "yellowing leaves", "mildew", "virus", "lesion",
     ],
     "pest_agent": [
         "pest", "pests", "insect", "insects", "bug", "bugs", "aphid", "caterpillar",
@@ -102,8 +34,7 @@ _KEYWORD_MAP: Dict[str, List[str]] = {
     ],
     "weather_agent": [
         "weather", "rain", "rainfall", "forecast", "temperature", "drought",
-        "humidity", "wind", "storm", "irrigation", "monsoon", "season",
-        "water", "watering", "irrigate",
+        "humidity", "wind", "storm", "irrigation timing", "monsoon", "season",
     ],
     "market_agent": [
         "price", "prices", "market", "sell", "selling", "buyer", "profit",
@@ -112,14 +43,6 @@ _KEYWORD_MAP: Dict[str, List[str]] = {
     "government_agent": [
         "government", "subsidy", "subsidies", "scheme", "grant", "loan",
         "policy", "ministry", "extension officer", "certificate", "license",
-    ],
-    # Phase 9 — matches when a farmer mentions attaching/sending a photo.
-    # The orchestrator also auto-adds this agent whenever
-    # context["image_base64"] is present, regardless of keyword match
-    # (see agent_orchestrator.py), so a photo attached with no caption
-    # still gets analyzed.
-    "image_agent": [
-        "photo", "picture", "image", "pic", "snapshot", "attached",
     ],
 }
 
@@ -133,7 +56,6 @@ _GENERIC_NEED: Dict[str, str] = {
     "weather_agent": "the current weather / forecast",
     "market_agent": "current market price guidance",
     "government_agent": "government scheme / subsidy information",
-    "image_agent": "a description of what the attached photo shows",
 }
 
 # THE MANAGER'S PLAYBOOK — when a farmer's question is clearly ABOUT
@@ -181,19 +103,6 @@ _REASONING_CHAINS: Dict[str, List[Tuple[str, str, str]]] = {
             "Wind and rain affect whether spraying now is effective and safe to apply.",
         ),
     ],
-    # PHASE 10 example chain — "My tomato plants are turning yellow.
-    # Should I water them today?": Disease Agent -> Weather Agent ->
-    # Soil Agent -> Fertilizer Agent -> (Planner synthesizes) Final
-    # Answer. Yellowing has several possible root causes an agronomist
-    # would check in this order: disease first, then whether recent/
-    # upcoming weather explains it (or whether watering today even
-    # makes sense), then soil moisture/drainage (over- or under-watered
-    # soil also yellows leaves), then whether it's actually a nutrient
-    # deficiency rather than disease at all. Each step's agent receives
-    # every earlier step's findings when COLLABORATION_MODE ==
-    # "sequential" (see agent_orchestrator.py / agent_types.py), so this
-    # chain is genuinely collaborative, not just four independent
-    # answers to the same question.
     "disease_agent": [
         (
             "disease diagnosis",
@@ -204,50 +113,7 @@ _REASONING_CHAINS: Dict[str, List[Tuple[str, str, str]]] = {
             "humidity and rainfall conditions",
             "weather_agent",
             "Many fungal and bacterial crop diseases spread faster in humid, wet "
-            "conditions, and recent/upcoming rain also affects whether watering today "
-            "is even needed.",
-        ),
-        (
-            "soil moisture and drainage",
-            "soil_agent",
-            "Waterlogged or poorly-drained soil can itself cause yellowing that mimics "
-            "disease, and determines whether watering today would help or make things worse.",
-        ),
-        (
-            "possible nutrient deficiency",
-            "fertilizer_agent",
-            "Yellowing leaves are a classic sign of nutrient deficiency (e.g. nitrogen), "
-            "not just disease, so ruling that in or out matters before recommending treatment.",
-        ),
-    ],
-    # A watering/irrigation question that DOESN'T mention disease still
-    # needs the weather outlook and the soil's current moisture, in
-    # that order, before "should I water today" can be answered well.
-    "weather_agent": [
-        (
-            "the weather outlook",
-            "weather_agent",
-            "Recent and upcoming rain directly determines whether watering today is needed.",
-        ),
-        (
-            "soil moisture and drainage",
-            "soil_agent",
-            "Whether the soil actually needs water — and how well it drains — matters as "
-            "much as the forecast when deciding whether to irrigate today.",
-        ),
-    ],
-    # Phase 9 — used when "image_agent" is itself the matched primary
-    # domain (farmer's wording mentioned a photo/picture). When a photo
-    # is attached but not mentioned in the wording, the orchestrator
-    # injects this same step directly (see
-    # agent_orchestrator.py._ensure_image_step) since keyword matching
-    # alone can't detect "there IS an attachment".
-    "image_agent": [
-        (
-            "what the attached photo shows",
-            "image_agent",
-            "A vision-model description of visible symptoms helps ground the "
-            "diagnosis in what the farmer's photo actually shows, not just their words.",
+            "conditions, which affects how urgently to act.",
         ),
     ],
 }
@@ -278,7 +144,7 @@ class PlannerAgent:
 
         return self._plan_with_keywords(question)
 
-    # -- Default: keyword routing + dependency chains ---------------------------
+    # -- Default: keyword routing + dependency chains 
     def _plan_with_keywords(self, question: str) -> PlanDecision:
         question_lower = (question or "").lower()
         primary_matches: List[str] = []
@@ -364,7 +230,7 @@ class PlannerAgent:
         "Need weather -> Need fertilizer schedule -> ..." trace."""
         return " → ".join(f"Need {s.need}" for s in steps)
 
-    # -- Optional: LLM-based planning --------------------------------------------
+    # -- Optional: LLM-based planning 
     def _plan_with_llm(self, question: str) -> Optional[PlanDecision]:
         if self.llm is None:
             self.llm = LLMClient()

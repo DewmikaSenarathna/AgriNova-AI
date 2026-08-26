@@ -1,32 +1,5 @@
 """
 rag_bridge.py
-=============
-Single choke point that lets Agents-Pipeline (Phase 7) reuse the
-Phase 6 RAG-Pipeline modules (embedder, vector_store, retriever,
-llm_client) instead of duplicating or forking them.
-
-WHY THIS FILE EXISTS
----------------------
-`backend/RAG-Pipeline/*.py` is written with bare, same-folder imports
-(`import config`, `import retriever`, ...) because that pipeline is
-designed to be run with its own folder as the working directory. To
-reuse it from Agents-Pipeline without copy-pasting ~600 lines of
-embedding/retrieval/LLM-client code, this module:
-
-  1. Adds `backend/RAG-Pipeline` to `sys.path` (once, on first import).
-  2. Imports the pieces every agent needs and re-exports them here,
-     under names that make clear they come from Phase 6.
-
-This is also why Agents-Pipeline's OWN settings file is named
-`agent_config.py` instead of `config.py` — if both folders were on
-sys.path with a module literally named `config.py`, whichever was
-imported first would silently "win" and the other pipeline's bare
-`import config` would resolve to the wrong settings. Giving each
-pipeline's config module a distinct top-level name sidesteps that
-footgun entirely, rather than relying on import order.
-
-Every other file in Agents-Pipeline should get its Phase-6 building
-blocks from HERE, not by importing RAG-Pipeline modules directly.
 """
 
 import sys

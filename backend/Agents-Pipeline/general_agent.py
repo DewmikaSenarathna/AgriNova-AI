@@ -1,14 +1,5 @@
 """
 general_agent.py
-==================
-Single responsibility: answer questions that don't clearly belong to
-any of the seven specialist domains, by falling back to the plain
-Phase 6 RAG pipeline over the whole knowledge base (no domain-biased
-query expansion, no domain-specific system prompt).
-
-This is what the Planner Agent runs when keyword/LLM routing can't
-confidently pick a specialist — it guarantees the farmer always gets
-a grounded answer instead of an empty agent list.
 """
 
 from typing import Optional

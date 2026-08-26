@@ -1,50 +1,22 @@
 """
 knowledge_agent.py
-===================
-Shared base class for the five agents whose "one job" is: search the
-SAME trusted knowledge base Phase 6 built, but through a domain lens —
-
-    Disease Agent      -> crop disease diagnosis & treatment
-    Fertilizer Agent   -> fertilizer choice, dosage, application timing
-    Pest Agent         -> pest identification & management
-    Soil Agent         -> soil health, pH, preparation
-    Government Agent   -> government schemes, subsidies, guidelines
-
-Rather than five near-identical copies of "embed -> search -> filter ->
-prompt -> generate", each of those agents is a ~15-line subclass that
-only supplies what makes it different: a domain label, a short list of
-query-expansion hints, and a domain-specific system prompt. This class
-does the actual retrieval + grounded generation, reusing Phase 6's
-Retriever and LLMClient via rag_bridge.py rather than duplicating them.
-
-This mirrors rag_pipeline.py's Step 1-4 flow (embed -> similarity
-search -> top-k -> grounded prompt -> generate), just parameterized by
-domain and reused across five agents instead of written once for a
-single general pipeline.
-
-PHASE 9 note: the actual "embed -> similarity search" call now goes
-through `tools.vector_db_tool.VectorDBTool` (the "Vector Database" tool
-from the Phase 9 architecture diagram) instead of calling `Retriever`
-directly — same shared Retriever underneath, just reached through the
-same tool interface every other external capability in this pipeline
-now uses.
-
-PHASE 10 note: when `agent_orchestrator.py` runs its agents in
-sequential-collaboration mode, `request.context["prior_findings"]`
-carries every earlier agent's result in this chain. `run()` renders it
-(see `agent_types.format_prior_findings`) into the prompt ahead of the
-retrieved SOURCES, so e.g. the Fertilizer Agent genuinely sees what the
-Soil Agent and Weather Agent already found for this same question,
-rather than answering blind to its teammates.
 """
 
 import logging
 from typing import List, Optional
 
 from base_agent import BaseAgent
-from agent_types import AgentRequest, AgentResult, format_prior_findings
-from rag_bridge import Retriever, LLMClient, LLMError, rag_config
-from tools.vector_db_tool import VectorDBTool
+from agent_types import AgentRequest, AgentResult
+from rag_bridge import (
+    Retriever,
+    LLMClient,
+    LLMError,
+    RetrievedChunk,
+    VectorStoreEmpty,
+    VectorStoreUnavailable,
+    build_context_block,
+    rag_config,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -72,23 +44,11 @@ class KnowledgeAgent(BaseAgent):
         "actionable."
     )
 
-    def __init__(
-        self,
-        retriever: Optional[Retriever] = None,
-        llm: Optional[LLMClient] = None,
-        vector_tool: Optional[VectorDBTool] = None,
-    ):
+    def __init__(self, retriever: Optional[Retriever] = None, llm: Optional[LLMClient] = None):
         self.retriever = retriever or Retriever()
         self.llm = llm or LLMClient()
-        # Phase 9 — every knowledge agent reaches the vector database
-        # through the shared VectorDBTool instead of calling Retriever
-        # directly. `self.retriever` is kept as an attribute (some
-        # callers, e.g. api.py's /health check, still read
-        # `agent.retriever.store.count()`) but retrieval itself now
-        # flows through the tool.
-        self.vector_tool = vector_tool or VectorDBTool(retriever=self.retriever)
 
-    # -- Step A — Domain-biased query expansion ------------------------------
+    # -- Step A — Domain-biased query expansion 
     def _expand_query(self, question: str) -> str:
         if not self.query_hints:
             return question
@@ -105,18 +65,21 @@ class KnowledgeAgent(BaseAgent):
             )
 
         expanded_query = self._expand_query(question)
-        # Phase 9 — if an Image Agent already ran (e.g. the farmer
-        # attached a crop photo), fold its plain-language description
-        # into the retrieval query so a photo of, say, yellowing leaves
-        # can surface disease-agent sources even if the farmer's own
-        # text didn't mention "yellowing".
-        image_description = (request.context or {}).get("image_description")
-        if image_description:
-            expanded_query = f"{expanded_query}. Visible in photo: {image_description}"
 
-        tool_result = self.vector_tool.execute(query=expanded_query)
+        try:
+            chunks: List[RetrievedChunk] = self.retriever.retrieve(expanded_query)
+        except (VectorStoreUnavailable, VectorStoreEmpty) as e:
+            return AgentResult(
+                agent_name=self.name,
+                summary=(
+                    f"The knowledge base isn't ready yet, so the {self.domain_label} agent "
+                    f"can't look up trusted sources right now."
+                ),
+                details=str(e),
+                grounded=False,
+            )
 
-        if not tool_result.ok:
+        if not chunks:
             return AgentResult(
                 agent_name=self.name,
                 summary=(
@@ -124,37 +87,17 @@ class KnowledgeAgent(BaseAgent):
                     f"knowledge base for this question."
                 ),
                 details=(
-                    f"I don't have grounded information on this in the knowledge base yet "
-                    f"({tool_result.error}). Please confirm with a local agricultural "
-                    f"extension officer before acting."
+                    f"I don't have grounded information on this in the knowledge base yet. "
+                    f"Please confirm with a local agricultural extension officer before acting."
                 ),
                 grounded=False,
             )
 
-        context_block = tool_result.text
-        used_chunks = tool_result.data.get("chunks", [])
-
-        # PHASE 10 — if earlier agents in this collaboration chain already
-        # ran (agent_config.COLLABORATION_MODE == "sequential"), fold
-        # their findings in ahead of the SOURCES block so this agent
-        # reasons WITH its teammates instead of in isolation. Empty in
-        # parallel mode or for the first agent in a chain.
-        prior_findings_block = format_prior_findings(request.context.get("prior_findings", []))
-
+        context_block, used_chunks = build_context_block(chunks)
         user_prompt = (
-            f"{prior_findings_block}"
             f"SOURCES:\n{context_block}\n\n---\n\n"
             f"FARMER'S QUESTION ({self.domain_label}): {question}\n\n"
-        )
-        if image_description:
-            user_prompt += (
-                f"THE FARMER ALSO ATTACHED A PHOTO. The Image Agent (a vision model, NOT a "
-                f"knowledge-base source) described it as: {image_description}\n\n"
-            )
-        user_prompt += (
-            "Answer using only the SOURCES above, citing them as [Source N]. "
-            "If earlier specialist findings were given above, factor them into your "
-            "answer where relevant instead of ignoring them."
+            f"Answer using only the SOURCES above, citing them as [Source N]."
         )
 
         try:
@@ -168,7 +111,7 @@ class KnowledgeAgent(BaseAgent):
                 ),
                 details=str(e),
                 grounded=False,
-                sources=used_chunks,
+                sources=[c.to_dict() for c in used_chunks],
             )
 
         return AgentResult(
@@ -176,5 +119,5 @@ class KnowledgeAgent(BaseAgent):
             summary=answer_text.strip().split("\n")[0][:200],
             details=answer_text.strip(),
             grounded=True,
-            sources=used_chunks,
+            sources=[c.to_dict() for c in used_chunks],
         )

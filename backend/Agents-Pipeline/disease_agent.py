@@ -1,8 +1,5 @@
 """
 disease_agent.py
-=================
-Single responsibility: crop disease diagnosis & treatment guidance,
-grounded in the shared knowledge base (see knowledge_agent.py).
 """
 
 from knowledge_agent import KnowledgeAgent

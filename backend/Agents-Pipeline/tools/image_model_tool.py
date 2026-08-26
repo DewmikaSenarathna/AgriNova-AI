@@ -1,26 +1,5 @@
 """
 image_model_tool.py
-====================
-PHASE 9 — "Image Agent -> Image Model" tool.
-
-Turns a farmer-submitted crop photo into a plain-language description
-of what's visible (leaf discoloration, spots, wilting, insect damage,
-growth stage...) using a vision-capable LLM, via
-`LLMClient.generate_vision()` (see ../../RAG-Pipeline/llm_client.py).
-
-This tool deliberately does NOT try to output a diagnosis itself —
-that's what Disease/Pest Agent are for, using the shared knowledge
-base. Keeping this tool's job to "describe what the image shows" (not
-"decide what disease this is") means:
-  - it stays useful even when the knowledge base has no matching
-    disease/pest entry,
-  - and its output is explicitly `grounded=False` model inference
-    (never presented to the farmer as a citable source), matching the
-    project's rule of being honest about what's evidence-backed.
-
-Basic validation (is this actually image data, is it a reasonable
-size) is done with the standard library only — no extra dependency —
-since the point of this file is orchestration, not image processing.
 """
 
 import base64
