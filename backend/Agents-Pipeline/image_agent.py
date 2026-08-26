@@ -1,5 +1,28 @@
 """
 image_agent.py
+================
+PHASE 9 — Single responsibility: describe what's visible in a
+farmer-submitted crop photo, using the "Image Model" tool
+(tools/image_model_tool.py).
+
+This agent deliberately does NOT diagnose a disease or pest itself —
+that stays Disease Agent / Pest Agent's job, grounded in the shared
+knowledge base. The Image Agent's output is honestly `grounded=False`
+(a vision-model description, not a retrieved source), and
+`agent_orchestrator.py` feeds that description into whichever
+knowledge agents run alongside it (via
+`request.context["image_description"]`, see knowledge_agent.py) so a
+photo of, e.g., yellowing spotted leaves can help Disease Agent find
+the right knowledge-base sources even if the farmer's own words
+didn't describe the symptoms in detail.
+
+    farmer's photo (base64, in request.context["image_base64"])
+            |
+            v
+    ImageModelTool -> vision LLM -> plain-language description
+            |
+            v
+    AgentResult(grounded=False, data={"description": ...})
 """
 
 import logging
