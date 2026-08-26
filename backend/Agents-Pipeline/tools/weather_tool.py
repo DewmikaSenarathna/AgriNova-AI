@@ -1,5 +1,18 @@
 """
 weather_tool.py
+===============
+PHASE 9 — "Weather Agent -> Weather API" tool.
+
+All the actual HTTP/geocoding/forecast plumbing that used to live
+directly inside `weather_agent.py` now lives here, behind
+`WeatherTool.execute(...)`. `weather_agent.py` (Phase 7) is unchanged
+in behaviour — it just calls this tool instead of `requests` directly,
+so the same capability could later be reused by another agent (e.g. a
+future Planner step that wants a quick rain check) without copying
+HTTP code.
+
+Open-Meteo (https://open-meteo.com) is free and needs no API key — see
+agent_config.py to point this at a different provider.
 """
 
 import logging
@@ -40,7 +53,7 @@ class WeatherTool(BaseTool):
         "(current conditions + N-day daily forecast) from Open-Meteo."
     )
 
-    # -- Location resolution 
+    # -- Location resolution ---------------------------------------------------
     def resolve_location(self, query: str, context: Optional[dict] = None) -> Tuple[float, float, str]:
         context = context or {}
         if "latitude" in context and "longitude" in context:
@@ -87,7 +100,7 @@ class WeatherTool(BaseTool):
             logger.warning(f"Geocoding '{place_name}' failed: {e}")
             return None
 
-    # -- Forecast fetch 
+    # -- Forecast fetch ----------------------------------------------------------
     def _fetch_forecast(self, latitude: float, longitude: float) -> dict:
         params = {
             "latitude": latitude,
@@ -105,7 +118,7 @@ class WeatherTool(BaseTool):
         response.raise_for_status()
         return response.json()
 
-    # -- Public entry point 
+    # -- Public entry point --------------------------------------------------
     def run(self, query: str = "", context: Optional[dict] = None) -> ToolResult:
         latitude, longitude, location_label = self.resolve_location(query, context)
 

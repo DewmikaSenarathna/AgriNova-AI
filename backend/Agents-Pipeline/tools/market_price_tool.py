@@ -1,5 +1,16 @@
 """
 market_price_tool.py
+=====================
+PHASE 9 — "Market Agent -> Market Price API" tool.
+
+There's no free, universal, no-key crop-price API that covers every
+crop and region, so this tool ships with a local structured dataset
+(`data/market_prices_sample.json`) as a stand-in "Market Price API" —
+fast, exact, offline-friendly for the demo. `MarketPriceTool` is the
+ONE place that knows about that dataset; swap `_load_local_prices()`
+for a real HTTP call to a live pricing API later without touching
+`market_agent.py` at all — the tool's `run()` signature and
+`ToolResult` shape stay identical either way.
 """
 
 import json

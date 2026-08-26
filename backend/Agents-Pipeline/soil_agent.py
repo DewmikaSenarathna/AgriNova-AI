@@ -1,5 +1,8 @@
 """
 soil_agent.py
+==============
+Single responsibility: soil health, pH management and land-preparation
+guidance, grounded in the shared knowledge base (see knowledge_agent.py).
 """
 
 from knowledge_agent import KnowledgeAgent
