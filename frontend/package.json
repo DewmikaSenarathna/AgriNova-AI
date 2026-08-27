@@ -1,0 +1,24 @@
+{
+  "name": "agrinova-ai-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "description": "AgriNova AI — Phase 12 web dashboard (React + Vite), talking to the Agents-Pipeline / RAG-Pipeline FastAPI services.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "eslint": "^8.57.0",
+    "eslint-plugin-react": "^7.37.2",
+    "eslint-plugin-react-hooks": "^4.6.2",
+    "vite": "^5.4.11"
+  }
+}
