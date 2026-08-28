@@ -1,4 +1,4 @@
-# Agents-Pipeline (Phase 7 + Phase 8 + Phase 9 + Phase 10)
+# Agents-Pipeline (Phase 7 + Phase 8 + Phase 9 + Phase 10 + Phase 11 + Phase 13)
 
 Turns the single-shot question-answering assistant from `RAG-Pipeline`
 (Phase 6) into **Agentic AI**: instead of one generalist retriever, a
@@ -26,6 +26,22 @@ is handed every EARLIER agent's findings so it can genuinely build on
 them — see [Multi-Agent Collaboration](#multi-agent-collaboration-phase-10)
 below.
 
+Phase 11 is **Conversation Memory** — farmers shouldn't have to repeat
+themselves. Pass the same `session_id` on every request from one
+farmer and AgriNova AI remembers their crop, location, previous
+disease/fertilizer findings and recent weather across turns (and
+across CLI runs / API calls), instead of starting from zero every
+question — see [Conversation Memory](#conversation-memory-phase-11)
+below.
+
+Phase 13 is **Explainable AI** — never answer without showing
+evidence. Every final answer is broken into
+`Recommendation -> Reason -> Supporting documents -> Confidence -> References`
+instead of one block of prose, so a farmer (or an auditor) can actually
+check it — see [Explainable AI](#explainable-ai-phase-13) below.
+(Phase 12, the React frontend that renders all of this, lives in
+`frontend/` — see its own README.)
+
 ```
 Farmer asks (+ optional photo)
      │
@@ -38,7 +54,7 @@ Farmer asks (+ optional photo)
      │   earlier agent's findings via request.context["prior_findings"])
      ▼
 ┌───────────┐    ┌───────────┐    ┌───────────┐    ┌─────────────┐
-│  Disease  │──▶│  Weather  │──▶│   Soil     │──▶│ Fertilizer  │   ...and so on for
+│  Disease  │──▶│  Weather   │──▶│   Soil    │──▶│ Fertilizer  │   ...and so on for
 │  Agent    │    │  Agent    │    │  Agent    │    │  Agent      │   whichever agents
 └───────────┘    └───────────┘    └───────────┘    └─────────────┘   the Planner picked
      │                 │                │                  │        (Market, Government,
@@ -170,9 +186,23 @@ curl -X POST http://localhost:8001/api/agents/ask \
     "details": "One combined, source-cited recommendation...",
     "grounded": true,
     "sources": [...]
+  },
+  "collaboration_mode": "sequential",
+  "session_id": null,
+  "recalled_memory": {},
+  "explanation": {
+    "recommendation": "Apply a copper-based fungicide and avoid overhead irrigation this week.",
+    "reason": "Your tomato crop shows signs consistent with early blight [Disease Agent, Source 1]...",
+    "next_steps": "- Apply copper fungicide\n- Avoid overhead irrigation\n- Monitor daily",
+    "supporting_documents": [...],
+    "confidence": {"level": "High", "score": 0.81, "factors": ["..."]},
+    "references": [{"n": 1, "label": "Tomato Disease Guide", "agent": "disease_agent", "similarity": 0.82}]
   }
 }
 ```
+
+See [Explainable AI](#explainable-ai-phase-13) below for what builds
+`explanation` and why.
 
 Attach a photo (Phase 9) with the top-level `image_base64` field —
 either a bare base64 string or a full `data:image/jpeg;base64,...` URL:
@@ -183,10 +213,22 @@ curl -X POST http://localhost:8001/api/agents/ask \
      -d "{\"question\": \"what is wrong with this plant?\", \"image_base64\": \"$(base64 -w0 leaf.jpg)\"}"
 ```
 
+Carry conversation memory across requests (Phase 11) with a
+`session_id` — see [Conversation Memory](#conversation-memory-phase-11)
+below for the full picture:
+
+```bash
+curl -X POST http://localhost:8001/api/agents/ask \
+     -H "Content-Type: application/json" \
+     -d '{"question": "should I irrigate today?", "session_id": "farmer-42"}'
+```
+
 `GET /health` reports API + knowledge base + LLM readiness. `GET
 /api/agents` lists every registered agent and its one-line
 responsibility. `GET /api/tools` (Phase 9) lists every external tool
-and which agent(s) use it.
+and which agent(s) use it. `GET /api/memory/{session_id}` /
+`DELETE /api/memory/{session_id}` (Phase 11) inspect or clear one
+session's remembered facts.
 
 ## Planner Agent: the manager (Phase 8)
 
@@ -419,13 +461,272 @@ agents) live in `tests/test_phase10_collaboration.py`:
 python -m unittest tests.test_phase10_collaboration -v
 ```
 
+## Conversation Memory (Phase 11)
+
+Farmers should not have to repeat themselves:
+
+```
+Day 1
+  Farmer: "My tomato crop in Kurunegala has yellowing leaves."
+  AI: [diagnoses early blight] — and REMEMBERS: crop=Tomato,
+      location=Kurunegala, last_disease=early blight
+
+Day 2
+  Farmer: "Should I irrigate today?"
+  AI already knows:
+      Crop                → Tomato
+      Location             → Kurunegala
+      Field                → (whatever the farmer told it, if anything)
+      Previous disease      → Early blight
+      Previous fertilizer    → (whatever was last recommended)
+      Weather history        → the last few forecasts checked
+  → answers directly, and can factor in "since your tomatoes had
+    early blight recently, avoid overhead irrigation."
+```
+
+**How it's identified:** a `session_id` string (one per farmer /
+device / login — the caller decides what that maps to). Pass the SAME
+`session_id` on every request from the same farmer to get memory
+across turns:
+
+```bash
+python main.py "my tomato crop in Kurunegala has yellowing leaves" --session farmer-42
+python main.py "should I irrigate today?" --session farmer-42
+# ^ the second call already knows the crop and location from the first
+```
+
+```bash
+curl -X POST http://localhost:8001/api/agents/ask \
+     -H "Content-Type: application/json" \
+     -d '{"question": "should I irrigate today?", "session_id": "farmer-42"}'
+```
+
+Omitting `session_id` entirely skips memory load/save altogether —
+existing callers that never pass one get exactly Phase 7-10's
+stateless behaviour, unchanged.
+
+**What gets remembered** (`conversation_memory.py`'s `FarmerMemory`):
+
+| Fact | Where it comes from |
+|---|---|
+| `crop` | Explicit `context["crop"]`, else keyword-matched from the question text (e.g. "my tomato leaves..." → `Tomato`) |
+| `location` / `latitude` / `longitude` | Explicit `context`, else the Weather Agent's own **geocoded** location (`tools/weather_tool.py`) fills the gap — more reliable than guessing from free text |
+| `field` | Explicit `context["field"]` only (no reliable way to guess a plot name from text) |
+| `last_disease` / `last_fertilizer` / `last_pest` / `last_soil_note` | The most recent grounded finding from that specialist agent |
+| `weather_history` | A short rolling log (capped at `MEMORY_MAX_WEATHER_HISTORY`, default 5) of past forecasts checked |
+| `turns` | A short rolling log (capped at `MEMORY_MAX_TURNS`, default 10) of recent questions, for light conversational continuity |
+
+**How it flows through the pipeline** — the same shape Phase 10 already
+established for cross-AGENT context, just one level up, across
+QUESTIONS instead of across agents within one question:
+
+```
+Phase 10 — agents within ONE question share findings via
+           context["prior_findings"]  (agent_types.format_prior_findings)
+Phase 11 — questions within ONE conversation share facts via
+           context["memory_summary"]  (FarmerMemory.to_prompt_block)
+           + recalled context keys: crop, location, latitude,
+             longitude, field
+```
+
+```python
+# agent_orchestrator.py — AgentOrchestrator.handle()
+memory = self.memory_store.get(session_id)              # 1. recall
+context = {**memory.known_context(), **explicit_context}  # 2. merge (explicit wins)
+context["memory_summary"] = memory.to_prompt_block()
+...                                                        # 3. run the plan as normal
+memory = self.memory_store.record_turn(                  # 4. persist what's new
+    session_id, question, explicit_context, agent_results, final_report
+)
+```
+
+Because `crop`/`location`/`latitude`/`longitude` are merged straight
+into `context` under the SAME keys those agents already read
+(`market_agent.py`'s `context.get("crop")`,
+`tools/weather_tool.py`'s `context["location"]`/`latitude`/`longitude`),
+**no existing agent needed to change** to benefit from recalled facts
+— e.g. the Weather Agent automatically checks the remembered location
+without the Planner or the farmer mentioning it again. The knowledge
+agents (`knowledge_agent.py`), the Weather Agent, and the Report Agent
+additionally read `context["memory_summary"]` and fold it into their
+LLM prompt (ahead of `prior_findings`), so the language itself can say
+"since your tomato crop had early blight recently..." instead of
+treating every question as a first-ever one.
+
+**Explicit context for THIS question always wins over older memory** —
+a farmer switching crops mid-conversation (or an API caller passing an
+explicit `context={"crop": "Rice"}`) is not stuck on a stale fact; it's
+simply recorded as the new "last known" value going forward.
+
+**Storage** is deliberately simple: one small JSON file per session
+under `agent_config.MEMORY_DIR` (default `output/memory/`) — no
+database server to stand up for a portfolio/demo project, easy to
+inspect by hand, and every caller only ever talks to
+`ConversationMemoryStore`, never the files directly, so the backend
+can change later without touching `agent_orchestrator.py`, `api.py`,
+or `main.py`.
+
+**Inspecting / resetting memory:**
+
+```bash
+curl http://localhost:8001/api/memory/farmer-42       # what's remembered
+curl -X DELETE http://localhost:8001/api/memory/farmer-42   # forget it
+python main.py "..." --session farmer-42 --reset-memory     # same, from the CLI
+```
+
+In interactive CLI mode, a fresh session ID is generated automatically
+each run (so a single sitting naturally shares memory across
+questions) — pass `--session <id>` to resume a specific farmer's
+memory from an earlier run instead.
+
+Configurable via `agent_config.py` / environment variables:
+
+```bash
+# .env or shell
+MEMORY_ENABLED=true            # set false to disable Phase 11 entirely
+MEMORY_MAX_TURNS=10             # how many recent questions to keep per session
+MEMORY_MAX_WEATHER_HISTORY=5    # how many past forecasts to keep per session
+```
+
+Unit tests (no LLM / network / vector DB required) live in
+`tests/test_phase11_memory.py`, including a full replay of the Day 1 /
+Day 2 scenario above through `AgentOrchestrator.handle()`:
+
+```bash
+python -m unittest tests.test_phase11_memory -v
+```
+
+## Explainable AI (Phase 13)
+
+Never answer without showing evidence. Instead of handing a farmer a
+bare instruction —
+
+```
+Use fertilizer X.
+```
+
+— every final answer is broken into five distinct stages a farmer (or
+an auditor) can actually check:
+
+```
+Recommendation
+     │
+     ▼
+  Reason
+     │
+     ▼
+Supporting documents
+     │
+     ▼
+Confidence
+     │
+     ▼
+References
+```
+
+```bash
+curl -X POST http://localhost:8001/api/agents/ask \
+     -H "Content-Type: application/json" \
+     -d '{"question": "my tomato leaves have brown spots, what should I do?"}' | python -m json.tool
+```
+
+```json
+{
+  "explanation": {
+    "recommendation": "Apply a copper-based fungicide and avoid overhead irrigation this week.",
+    "reason": "Your tomato crop shows signs consistent with early blight [Disease Agent, Source 1]. Humid conditions are expected for the next 3 days [Weather Agent, Source 1], which favors fungal spread.",
+    "next_steps": "- Apply copper fungicide\n- Avoid overhead irrigation\n- Monitor daily",
+    "supporting_documents": [ { "agent": "disease_agent", "heading": "Tomato Disease Guide", "similarity": 0.82, "...": "..." } ],
+    "confidence": {
+      "level": "High",
+      "score": 0.81,
+      "factors": [
+        "2 of 2 specialist finding(s) were grounded in real evidence",
+        "retrieved knowledge-base passages matched the question with 82% average similarity",
+        "the consolidated report is grounded in cited sources"
+      ]
+    },
+    "references": [ { "n": 1, "label": "Tomato Disease Guide", "agent": "disease_agent", "similarity": 0.82 } ]
+  }
+}
+```
+
+**Why this isn't another LLM call.** `recommendation` / `reason` /
+`next_steps` are PARSED out of the Report Agent's already-written
+text — `report_agent.py`'s prompt now requires exactly that structure
+(`## Recommendation` / `## Reason` / `## Recommended next steps`), so
+`explainability.py`'s `split_recommendation_and_reason()` can reliably
+pull them back apart (falling back to "first paragraph = recommendation,
+rest = reason" for any answer that doesn't use the headers, so the UI
+is never left with nothing). `confidence` is computed with a plain,
+additive, fully-inspectable **formula**, deliberately NOT another LLM
+call asked to grade its own answer:
+
+```
++0.50 x (grounded specialists / specialists that ran)
++0.30 x (average retrieval similarity of cited sources — redistributed
+         onto the grounded-ratio term when there's no similarity data
+         at all, e.g. a purely tool-backed weather/market answer)
++0.20 if the consolidated report itself is grounded
+-0.15 per specialist that errored out entirely
+```
+
+...clipped to `[0, 1]` and bucketed into **Low** (`<0.4`) / **Medium**
+(`<0.7`) / **High** (`>=0.7`). An LLM can write a fluent,
+confident-*sounding* recommendation whether or not it's actually
+well-supported — a farmer's trust in the confidence score shouldn't
+hinge on the same model also being an honest judge of its own
+homework. Every score comes with the plain-language `factors` that
+explain it, so the confidence number is itself explainable, not a
+black box.
+
+**Supporting documents vs. References — two different jobs.**
+`supporting_documents` is the raw, combined evidence list exactly as
+the specialist agents produced it (one entry per retrieved chunk / API
+result / dataset hit). `references` is that same evidence,
+de-duplicated and numbered (`build_references()`) into a
+bibliography — the same `[Source N]` numbers the Report Agent's
+`Reason` text cites inline, via
+`report_agent.py`'s `_build_findings_block()`.
+
+**How it fits the pipeline** — `agent_orchestrator.py` calls
+`build_explanation()` once, right after the Report Agent produces
+`final_report`, and attaches the result to
+`OrchestratedAnswer.explanation`:
+
+```python
+# agent_orchestrator.py — AgentOrchestrator.handle()
+final_report = self.report_agent.execute(report_request)
+explanation = build_explanation(agent_results, final_report)
+```
+
+`api.py` serializes it straight through as `AskResponse.explanation`;
+`main.py`'s CLI prints all five stages separately; the frontend's
+`RecommendationLedger.jsx` renders them as five numbered, visually
+separated stages (with the Phase 10 agent-chain graft line kept as a
+secondary, collapsed "how this was produced" detail underneath) —
+see `frontend/README.md`.
+
+Unit tests (no LLM / network required) live in
+`tests/test_phase13_explainability.py`: section-splitting (including
+the no-headers fallback), the confidence formula's arithmetic,
+reference de-duplication/numbering, and an
+`AgentOrchestrator.handle()` integration test confirming a populated
+`Explanation` is actually attached to the answer:
+
+```bash
+python -m unittest tests.test_phase13_explainability -v
+```
+
 ## Files
 
 | File | Responsibility |
 |---|---|
-| `agent_config.py` | Every Phase-7/8/9/10-specific setting (planner mode, weather/market/gov-search/image config, `COLLABORATION_MODE`, API port) |
+| `agent_config.py` | Every Phase-7/8/9/10/11-specific setting (planner mode, weather/market/gov-search/image config, `COLLABORATION_MODE`, memory settings, API port) |
 | `rag_bridge.py` | Re-exports Phase 6's embedder/vector store/retriever/LLM client/RAG pipeline |
 | `agent_types.py` | Shared `AgentRequest` / `AgentResult` / `PlanDecision` / `PlanStep` dataclasses + Phase 10's `format_prior_findings()` |
+| `conversation_memory.py` | Phase 11 — `FarmerMemory` + `ConversationMemoryStore`: persists/recalls per-session facts across turns |
+| `explainability.py` | Phase 13 — `build_explanation()`: parses the Report Agent's text + computes confidence into the five-stage `Explanation` structure |
 | `base_agent.py` | Abstract base class every agent implements; catches per-agent failures |
 | `tools/` | Phase 9 — `BaseTool` contract + Weather API / Market Price API / Government PDF Search / Vector Database / Image Model tools |
 | `knowledge_agent.py` | Shared retrieval (via `tools.vector_db_tool`) + grounded-generation logic for the RAG-backed agents |
@@ -440,9 +741,9 @@ python -m unittest tests.test_phase10_collaboration -v
 | `image_agent.py` | Describes an attached crop photo (via `tools.image_model_tool`) |
 | `general_agent.py` | Fallback: plain Phase 6 RAG over the whole knowledge base |
 | `report_agent.py` | Combines every agent's findings into one final report |
-| `agent_orchestrator.py` | The main orchestrator — `AgentOrchestrator().handle(question, context)` |
-| `main.py` | Interactive CLI entry point (`--image <path>` to attach a photo) |
-| `api.py` | FastAPI service (`/api/agents/ask`, `/api/agents`, `/api/tools`, `/health`) |
+| `agent_orchestrator.py` | The main orchestrator — `AgentOrchestrator().handle(question, context, session_id)` |
+| `main.py` | Interactive CLI entry point (`--image <path>` to attach a photo, `--session <id>` / `--reset-memory` for conversation memory) |
+| `api.py` | FastAPI service (`/api/agents/ask`, `/api/agents`, `/api/tools`, `/api/memory/{session_id}`, `/health`) |
 | `data/market_prices_sample.json` | Demo price dataset used by the Market Agent / `MarketPriceTool` |
 
 ## Design notes
@@ -484,3 +785,21 @@ python -m unittest tests.test_phase10_collaboration -v
   agent's code, and it's the one place to swap a demo integration
   (the local market-price JSON, Open-Meteo) for a production one
   later.
+* **Memory recall reuses existing context keys, on purpose (Phase 11).**
+  `FarmerMemory.known_context()` returns `crop`/`location`/`latitude`/
+  `longitude`/`field` under the exact same keys `market_agent.py` and
+  `tools/weather_tool.py` already read — so remembering a farmer's crop
+  or location required zero changes to those agents. Only the
+  richer, prose-shaped facts (previous disease/fertilizer findings,
+  weather history) needed a new channel (`context["memory_summary"]`),
+  and that reuses the same pattern Phase 10 established for
+  `prior_findings` rather than inventing a new one.
+* **Confidence is a formula, not a vibe (Phase 13).** It would be one
+  extra LLM call to just ask the model "how confident are you?" —
+  and it would be worthless, because the same model that wrote a
+  fluent-sounding recommendation is a poor judge of whether that
+  recommendation is actually well-supported. Computing `confidence`
+  from `AgentResult.grounded` flags, retrieval similarity scores, and
+  error counts instead means the number can't be fooled by confident
+  phrasing, and the `factors` list means it never has to be trusted
+  blindly either.

@@ -19,6 +19,16 @@ This agent never talks to the knowledge base or an external API
 itself — it only reasons over the AgentResults (and, since Phase 8,
 the Planner's PlanDecision) it's handed, which is what makes it safe
 to always run last regardless of which specialized agents fired.
+
+PHASE 13 — EXPLAINABLE AI: the report text this agent writes is no
+longer free-form. It's required to use exactly three sections
+(`## Recommendation` / `## Reason` / `## Recommended next steps`) so
+`explainability.py`'s `build_explanation()` can reliably parse them
+back out and hand the frontend a proper "Recommendation -> Reason ->
+Supporting documents -> Confidence -> References" structure instead
+of one wall of prose — see explainability.py's module docstring for
+the full picture, including why `confidence` is computed with a plain
+formula rather than asked of this same LLM call.
 """
 
 import logging
@@ -34,20 +44,25 @@ SYSTEM_PROMPT = """You are AgriNova AI's Report Agent. You are given a farmer's 
 question and the findings of several specialist agents that already investigated it \
 (disease, weather, market, government, soil, fertilizer, and/or pest specialists).
 
-Your job:
-1. Write ONE clear, well-organized report that directly answers the farmer's question, \
-combining the specialists' findings — do not just concatenate them.
-2. Use short headings or a short list per topic covered, in plain language a farmer can act on.
-3. Preserve each specialist's citations exactly as given to you (e.g. [Disease Agent, Source 2]) \
-so the farmer can still tell which finding came from where.
-4. If two specialists disagree or one found nothing relevant, say so plainly rather than \
-papering over it.
-5. Do not invent any fact, figure, price, dosage or date that isn't present in the specialists' \
-findings below.
-6. If facts already known about this farmer from earlier conversation turns are given below, \
-use them naturally (e.g. "since your tomato crop had early blight recently...") instead of \
-ignoring them or asking the farmer to repeat themselves.
-7. End with a short "Recommended next steps" list.
+Your job — never answer without showing your evidence, and never skip straight to an \
+instruction with no explanation:
+1. Structure your ENTIRE response using EXACTLY these three section headers, in this \
+order, and no others:
+   ## Recommendation
+   ## Reason
+   ## Recommended next steps
+2. "## Recommendation" — 1 to 3 sentences: the single clearest, most actionable answer to \
+the farmer's question. No hedging, no citations here — just the recommendation itself.
+3. "## Reason" — the fuller explanation. Combine the specialists' findings into one \
+coherent argument for the recommendation above — do not just concatenate them. Preserve \
+each specialist's citations exactly as given to you (e.g. [Disease Agent, Source 2]) so the \
+farmer can still tell which finding came from where. If two specialists disagree, or one \
+found nothing relevant, say so plainly rather than papering over it. Do not invent any \
+fact, figure, price, dosage or date that isn't present in the specialists' findings below.
+4. "## Recommended next steps" — a short, concrete bullet list.
+5. If facts already known about this farmer from earlier conversation turns are given \
+below, use them naturally (e.g. "since your tomato crop had early blight recently...") \
+instead of ignoring them or asking the farmer to repeat themselves.
 """
 
 
@@ -135,14 +150,35 @@ class ReportAgent(BaseAgent):
 
     @staticmethod
     def _fallback_concatenation(agent_results: List[AgentResult]) -> str:
-        sections = []
+        """Used only when the LLM is unreachable (see `run()`). Still
+        follows the Phase 13 Recommendation/Reason/Recommended next
+        steps structure — explainability shouldn't disappear just
+        because the synthesis step degraded to a plain concatenation."""
+        grounded_summaries = [
+            r.summary for r in agent_results if r.grounded and not r.error and r.summary
+        ]
+        recommendation = " ".join(grounded_summaries[:2]) or (
+            "No single clear recommendation could be generated automatically — review each "
+            "specialist's findings below and confirm with a local agricultural expert."
+        )
+
+        reason_sections = []
         for result in agent_results:
             label = result.agent_name.replace("_", " ").title()
             body = result.details or result.summary or "No findings."
-            sections.append(f"## {label}\n{body}")
-        sections.append(
-            "## Recommended next steps\nReview each section above. If anything is unclear or "
-            "not grounded in a source, confirm with a local agricultural extension officer "
-            "before acting."
+            reason_sections.append(f"### {label}\n{body}")
+            if result.error:
+                reason_sections.append(f"(Note: this agent hit an error: {result.error})")
+        reason = "\n\n".join(reason_sections)
+
+        next_steps = (
+            "- Review each specialist's section above.\n"
+            "- If anything is unclear or not grounded in a source, confirm with a local "
+            "agricultural extension officer before acting."
         )
-        return "\n\n".join(sections)
+
+        return (
+            f"## Recommendation\n{recommendation}\n\n"
+            f"## Reason\n{reason}\n\n"
+            f"## Recommended next steps\n{next_steps}"
+        )

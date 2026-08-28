@@ -1,7 +1,7 @@
 """
 agent_orchestrator.py
 =======================
-PHASE 7/10/11 — The Agents Pipeline (full orchestration)
+PHASE 7/10/11/13 — The Agents Pipeline (full orchestration)
 
 PHASE 10 — MULTI-AGENT COLLABORATION (the default mode):
 
@@ -94,6 +94,7 @@ from typing import Dict, List, Optional
 import agent_config
 from agent_types import AgentRequest, AgentResult, PlanDecision, PlanStep
 from conversation_memory import ConversationMemoryStore, FarmerMemory
+from explainability import Explanation, build_explanation
 from planner_agent import PlannerAgent
 from base_agent import BaseAgent
 from disease_agent import DiseaseAgent
@@ -129,6 +130,11 @@ class OrchestratedAnswer:
     # instead of that being invisible.
     session_id: Optional[str] = None
     recalled_memory: Dict = field(default_factory=dict)
+    # PHASE 13 — the Recommendation / Reason / Supporting documents /
+    # Confidence / References structure built from `final_report` — see
+    # explainability.py. None only for the empty-question short-circuit
+    # below, where there's no report to explain.
+    explanation: Optional[Explanation] = None
 
     def to_dict(self) -> dict:
         return {
@@ -139,6 +145,7 @@ class OrchestratedAnswer:
             "collaboration_mode": self.collaboration_mode,
             "session_id": self.session_id,
             "recalled_memory": self.recalled_memory,
+            "explanation": self.explanation.to_dict() if self.explanation else None,
         }
 
 
@@ -262,6 +269,13 @@ class AgentOrchestrator:
         )
         final_report = self.report_agent.execute(report_request)
 
+        # PHASE 13 — turn `final_report` into the Recommendation / Reason
+        # / Supporting documents / Confidence / References structure a
+        # farmer (or auditor) can actually check, instead of a single
+        # block of prose. See explainability.py's module docstring for
+        # why this is a parsing + formula step, not another LLM call.
+        explanation = build_explanation(agent_results, final_report)
+
         # PHASE 11 — Step 4: fold whatever NEW facts this turn revealed
         # (explicit context hints, crop mentioned in the question text,
         # and grounded specialist findings) into this session's memory,
@@ -283,6 +297,7 @@ class AgentOrchestrator:
             collaboration_mode=agent_config.COLLABORATION_MODE,
             session_id=session_id,
             recalled_memory=recalled,
+            explanation=explanation,
         )
 
     def _run_sequential_collaboration(

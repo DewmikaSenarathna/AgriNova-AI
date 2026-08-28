@@ -1,7 +1,7 @@
 """
 main.py
 =======
-PHASE 7/10/11 — Agents Pipeline (interactive CLI)
+PHASE 7/10/11/13 — Agents Pipeline (interactive CLI)
 
 Run this to ask AgriNova AI questions through the full multi-agent
 pipeline (Planner -> specialists, collaborating in sequence -> Report
@@ -82,7 +82,30 @@ def print_answer(result: OrchestratedAnswer):
 
     print(f"\n{'='*70}\nFINAL REPORT\n{'='*70}")
     print(result.final_report.details or result.final_report.summary)
-    if result.final_report.sources:
+
+    # PHASE 13 — Explainable AI: Recommendation -> Reason -> Supporting
+    # documents -> Confidence -> References, parsed/computed from the
+    # final report above (see explainability.py). Printed separately so
+    # the structure a farmer would see in the frontend is visible here
+    # too, not just the raw report text.
+    if result.explanation:
+        exp = result.explanation
+        print(f"\n{'='*70}\nEXPLANATION  (Phase 13 — Explainable AI)\n{'='*70}")
+        print(f"RECOMMENDATION\n  {exp.recommendation}")
+        if exp.reason:
+            print(f"\nREASON\n  {exp.reason}")
+        if exp.next_steps:
+            print(f"\nRECOMMENDED NEXT STEPS\n  {exp.next_steps}")
+        confidence = exp.confidence
+        print(f"\nCONFIDENCE: {confidence['level']} ({confidence['score']:.0%})")
+        for factor in confidence["factors"]:
+            print(f"  - {factor}")
+        if exp.references:
+            print("\nREFERENCES")
+            for ref in exp.references:
+                sim = f" ({ref['similarity']:.0%} match)" if ref.get("similarity") is not None else ""
+                print(f"  [{ref['n']}] {ref['label']}{sim}")
+    elif result.final_report.sources:
         print(f"\n{'-'*70}\nCOMBINED SOURCES\n{'-'*70}")
         for i, s in enumerate(result.final_report.sources, start=1):
             print(f"[{i}] {s}")
