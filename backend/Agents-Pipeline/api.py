@@ -1,7 +1,7 @@
 """
 api.py
 ======
-PHASE 7/10/11 — Agents Pipeline exposed as a FastAPI service
+PHASE 7/10/11/13 — Agents Pipeline exposed as a FastAPI service
 
 This is the agentic counterpart to `RAG-Pipeline/api.py`. It runs on
 its own port (default 8001) so both can be run side by side:
@@ -11,7 +11,10 @@ its own port (default 8001) so both can be run side by side:
     POST   /api/agents/ask               -> { "question": "...", "context": {...},
                                               "session_id": "..." }
                                              -> full plan + every specialist's
-                                                findings + one consolidated report
+                                                findings + one consolidated report +
+                                                a Phase 13 Recommendation/Reason/
+                                                Supporting-documents/Confidence/
+                                                References explanation
     GET    /api/memory/{session_id}       -> PHASE 11 — what AgriNova AI currently
                                              remembers about that farmer/session
     DELETE /api/memory/{session_id}       -> PHASE 11 — forget that session
@@ -133,6 +136,34 @@ class PlanOut(BaseModel):
     steps: List[PlanStepOut]
 
 
+class ConfidenceOut(BaseModel):
+    """PHASE 13 — see explainability.py's `compute_confidence` for the formula."""
+    level: str  # "Low" | "Medium" | "High"
+    score: float  # 0.0 - 1.0
+    factors: List[str]
+
+
+class ReferenceOut(BaseModel):
+    """PHASE 13 — one numbered, de-duplicated bibliography entry."""
+    n: int
+    label: str
+    agent: Optional[str] = None
+    similarity: Optional[float] = None
+    detail: Optional[str] = None
+
+
+class ExplanationOut(BaseModel):
+    """PHASE 13 — Recommendation -> Reason -> Supporting documents ->
+    Confidence -> References, built by explainability.py's
+    `build_explanation()` from the Report Agent's structured output."""
+    recommendation: str
+    reason: str
+    next_steps: str
+    supporting_documents: List[Dict[str, Any]]
+    confidence: ConfidenceOut
+    references: List[ReferenceOut]
+
+
 class AskResponse(BaseModel):
     question: str
     plan: PlanOut
@@ -147,6 +178,8 @@ class AskResponse(BaseModel):
     # from earlier turns and used to answer THIS question.
     session_id: Optional[str] = None
     recalled_memory: Dict[str, Any] = Field(default_factory=dict)
+    # PHASE 13 — see ExplanationOut above.
+    explanation: Optional[ExplanationOut] = None
 
 
 class MemoryOut(BaseModel):
