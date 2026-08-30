@@ -1,0 +1,146 @@
+[
+  {
+    "id": "disease_01",
+    "question": "My tomato plants have yellow leaves and brown spots. What disease could this be and how should I manage it?",
+    "context": {
+      "crop": "tomato",
+      "location": "Kurunegala, Sri Lanka"
+    },
+    "expected_agents": [
+      "disease_agent",
+      "weather_agent",
+      "soil_agent",
+      "fertilizer_agent"
+    ],
+    "expected_tools": [
+      "vector_database",
+      "weather_api"
+    ],
+    "required_evidence_terms": [
+      "tomato",
+      "disease"
+    ],
+    "required_facts": [],
+    "reference_answer": ""
+  },
+  {
+    "id": "weather_01",
+    "question": "Should I irrigate my tomato crop today in Kurunegala?",
+    "context": {
+      "crop": "tomato",
+      "location": "Kurunegala, Sri Lanka"
+    },
+    "expected_agents": [
+      "weather_agent",
+      "soil_agent"
+    ],
+    "expected_tools": [
+      "weather_api",
+      "vector_database"
+    ],
+    "required_evidence_terms": [
+      "soil"
+    ],
+    "required_facts": [],
+    "reference_answer": ""
+  },
+  {
+    "id": "fertilizer_01",
+    "question": "Which fertilizer should I use for my rice crop, and is tomorrow a good time to apply it?",
+    "context": {
+      "crop": "rice",
+      "location": "Kurunegala, Sri Lanka"
+    },
+    "expected_agents": [
+      "weather_agent",
+      "fertilizer_agent",
+      "soil_agent"
+    ],
+    "expected_tools": [
+      "weather_api",
+      "vector_database"
+    ],
+    "required_evidence_terms": [
+      "fertilizer"
+    ],
+    "required_facts": [],
+    "reference_answer": ""
+  },
+  {
+    "id": "pest_01",
+    "question": "How can I control caterpillars on my cabbage plants, and is the weather suitable for spraying?",
+    "context": {
+      "crop": "cabbage",
+      "location": "Nuwara Eliya, Sri Lanka"
+    },
+    "expected_agents": [
+      "pest_agent",
+      "weather_agent"
+    ],
+    "expected_tools": [
+      "vector_database",
+      "weather_api"
+    ],
+    "required_evidence_terms": [
+      "caterpillar"
+    ],
+    "required_facts": [],
+    "reference_answer": ""
+  },
+  {
+    "id": "market_01",
+    "question": "What is the current market price for tomato and should I sell now?",
+    "context": {
+      "crop": "tomato",
+      "location": "Colombo, Sri Lanka"
+    },
+    "expected_agents": [
+      "market_agent"
+    ],
+    "expected_tools": [
+      "market_price_api"
+    ],
+    "required_evidence_terms": [],
+    "required_facts": [],
+    "reference_answer": ""
+  },
+  {
+    "id": "government_01",
+    "question": "What government scheme or subsidy is available for smallholder farmers?",
+    "context": {
+      "crop": "rice",
+      "location": "Sri Lanka"
+    },
+    "expected_agents": [
+      "government_agent"
+    ],
+    "expected_tools": [
+      "vector_database",
+      "government_pdf_search"
+    ],
+    "required_evidence_terms": [
+      "subsidy"
+    ],
+    "required_facts": [],
+    "reference_answer": ""
+  },
+  {
+    "id": "soil_01",
+    "question": "How can I improve the soil health and pH of my field before planting vegetables?",
+    "context": {
+      "crop": "vegetables",
+      "location": "Kandy, Sri Lanka"
+    },
+    "expected_agents": [
+      "soil_agent"
+    ],
+    "expected_tools": [
+      "vector_database"
+    ],
+    "required_evidence_terms": [
+      "soil"
+    ],
+    "required_facts": [],
+    "reference_answer": ""
+  }
+]
